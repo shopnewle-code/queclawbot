@@ -191,8 +191,4 @@ export function getMongoDBStatus() {
   };
 }
 
-export function disconnectMongoDB() {
-  return mongoose.disconnect();
-}
-
 export default mongoose;
