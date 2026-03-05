@@ -8,8 +8,6 @@ import { env } from "./env.js";
 export async function connectMongoDB() {
   try {
     await mongoose.connect(env.MONGO_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
       retryWrites: true,
       maxPoolSize: 10,
       minPoolSize: 2,
