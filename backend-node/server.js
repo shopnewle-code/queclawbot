@@ -105,19 +105,21 @@ function isTelegramUpdateValid(req) {
 
 app.post("/webhook", async (req, res) => {
   try {
-    // Verify webhook signature
-    if (!isTelegramUpdateValid(req)) {
-      logger.warn("Invalid webhook signature");
-      return res.status(403).json({ error: "Unauthorized" });
+    // Log incoming webhook
+    logger.info("Webhook received", { updateId: req.body?.update_id });
+
+    if (!req.body) {
+      return res.sendStatus(400);
     }
 
     if (bot) {
       await bot.processUpdate(req.body);
     }
+
     res.sendStatus(200);
   } catch (error) {
-    logger.error("Webhook processing failed", error);
-    res.status(500).json({ error: "Webhook processing failed" });
+    logger.error("Webhook error:", error);
+    res.sendStatus(200);
   }
 });
 
