@@ -1,0 +1,147 @@
+name: Build & Test
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+    
+    services:
+      mongodb:
+        image: mongo:5
+        options: >-
+          --health-cmd mongosh
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 27017:27017
+
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: backend-node/package-lock.json
+
+      - name: Install dependencies (backend)
+        run: |
+          cd backend-node
+          npm ci
+
+      - name: Lint (backend)
+        run: |
+          cd backend-node
+          npm run lint --if-present
+
+      - name: Test (backend)
+        run: |
+          cd backend-node
+          npm test --if-present
+        env:
+          MONGODB_URI: mongodb://localhost:27017/queclaw-test
+          NODE_ENV: test
+
+  python:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11']
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+
+      - name: Install dependencies (Python)
+        run: |
+          cd ai-engine-python
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest flake8
+
+      - name: Lint with flake8
+        run: |
+          cd ai-engine-python
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Test with pytest
+        run: |
+          cd ai-engine-python
+          pytest --if-present
+
+  dashboard:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 18.x]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dependencies (dashboard)
+        run: |
+          cd dashboard
+          npm ci
+
+      - name: Build dashboard
+        run: |
+          cd dashboard
+          npm run build
+
+      - name: Lint (dashboard)
+        run: |
+          cd dashboard
+          npm run lint --if-present
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run npm audit (backend)
+        run: |
+          cd backend-node
+          npm audit --audit-level=moderate || true
+
+      - name: Run npm audit (dashboard)
+        run: |
+          cd dashboard
+          npm audit --audit-level=moderate || true
+
+  code-quality:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run CodeQL
+        uses: github/codeql-action/init@v2
+        with:
+          languages:
+            - javascript
+            - python
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@v2
