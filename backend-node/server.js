@@ -4,23 +4,18 @@ dns.setDefaultResultOrder("ipv4first");
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import crypto from "crypto";
 import TelegramBot from "node-telegram-bot-api";
 
-// Configuration
 import { env } from "./config/env.js";
 import { connectMongoDB } from "./config/mongodb.js";
 
-// Services
 import SubscriptionService from "./services/subscriptionService.js";
-
-// Handlers
 import registerBotHandlers from "./handlers/botHandlers.js";
 
-// Routes
 import generalRoutes from "./routes/generalRoutes.js";
 import paypalRoutes from "./routes/paypalRoutes.js";
 
-// Middleware
 import {
   errorHandler,
   notFoundHandler,
@@ -28,151 +23,220 @@ import {
   validateJSON,
 } from "./middleware/errorHandler.js";
 
-// Utils
 import { logger } from "./utils/logger.js";
+
+/* ==============================
+APP INIT
+============================== */
+
+const app = express();
+let bot;
+
+/* ==============================
+MIDDLEWARE
+============================== */
+
+app.use(helmet());
+
+app.use(
+  cors({
+    origin: process.env.ALLOWED_ORIGINS?.split(",") || "*",
+    credentials: true,
+  })
+);
+
+app.use(express.json({ limit: "10mb" }));
+app.use(validateJSON);
+app.use(requestLogger);
+
+/* ==============================
+HEALTH CHECK
+============================== */
+
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "running",
+    service: "QueClaw AI Bot",
+    environment: env.NODE_ENV,
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// Extended health check with database status
+app.get("/health", async (req, res) => {
+  try {
+    const dbStatus = await import("./config/mongodb.js").then(() => "connected");
+
+    res.status(200).json({
+      status: "healthy",
+      service: "QueClaw AI Bot",
+      environment: env.NODE_ENV,
+      database: dbStatus,
+      bot: bot ? "active" : "inactive",
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(503).json({
+      status: "unhealthy",
+      error: "Database connection failed",
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+/* ==============================
+TELEGRAM WEBHOOK
+============================== */
+
+// Verify Telegram webhook signature for security
+function isTelegramUpdateValid(req) {
+  const signature = req.headers["x-telegram-bot-api-secret-hash"];
+  if (!signature) return false;
+
+  const checkString = JSON.stringify(req.body);
+  const computed = crypto
+    .createHmac("sha256", env.TELEGRAM_TOKEN)
+    .update(checkString)
+    .digest("hex");
+
+  return signature === computed;
+}
+
+app.post("/webhook", async (req, res) => {
+  try {
+    // Verify webhook signature
+    if (!isTelegramUpdateValid(req)) {
+      logger.warn("Invalid webhook signature");
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    if (bot) {
+      await bot.processUpdate(req.body);
+    }
+    res.sendStatus(200);
+  } catch (error) {
+    logger.error("Webhook processing failed", error);
+    res.status(500).json({ error: "Webhook processing failed" });
+  }
+});
+
+/* ==============================
+API ROUTES
+============================== */
+
+app.use("/api", generalRoutes);
+app.use("/api/paypal", paypalRoutes);
+
+/* ==============================
+ERROR HANDLING
+============================== */
+
+app.use(notFoundHandler);
+app.use(errorHandler);
 
 /* ==============================
 INITIALIZATION
 ============================== */
 
-const app = express();
-
-// Store bot instance for webhook access
-let botInstance = null;
-
-/**
- * Initialize application
- */
-async function initializeApp() {
+async function initialize() {
   try {
-    logger.info("🚀 Initializing QueClaw AI Server...");
+    logger.info("🚀 Starting QueClaw Server...");
 
-    // Middleware
-    app.use(helmet());
-    app.use(
-      cors({
-        origin: process.env.ALLOWED_ORIGINS?.split(",") || "*",
-        credentials: true,
-      })
-    );
-    app.use(express.json({ limit: "10mb" }));
-    app.use(validateJSON);
-    app.use(requestLogger);
-
-    // Database
     await connectMongoDB();
 
-
-    // Initialize Telegram Bot
     if (!env.TELEGRAM_TOKEN) {
-      throw new Error("TELEGRAM_TOKEN is required");
+      throw new Error("TELEGRAM_TOKEN missing");
     }
 
-    botInstance = new TelegramBot(env.TELEGRAM_TOKEN, { polling: true });
-    logger.success("🤖 Telegram bot initialized");
+    bot = new TelegramBot(env.TELEGRAM_TOKEN);
+    registerBotHandlers(bot);
 
-    // Register bot handlers
-    registerBotHandlers(botInstance);
+    app.locals.bot = bot;
 
-    // Store bot instance in app for webhook access
-    app.locals.bot = botInstance;
+    logger.success("🤖 Telegram bot ready");
 
-    // API Routes
-    app.use("/api", generalRoutes);
-    app.use("/api/paypal", paypalRoutes);
+    if (env.BASE_URL) {
+      const webhookURL = `${env.BASE_URL}/webhook`;
 
-    // Global 404 handler
-    app.use(notFoundHandler);
+      await bot.setWebHook(webhookURL);
 
-    // Global error handler (must be last)
-    app.use(errorHandler);
+      logger.success(`🌐 Webhook set: ${webhookURL}`);
+    }
 
-    // Subscription expiry check (every hour)
-    setInterval(
-      async () => {
-        try {
-          await SubscriptionService.checkAndDeactivateExpired();
-        } catch (error) {
-          logger.error("Error checking expired subscriptions", error);
-        }
-      },
-      env.SUBSCRIPTION_CHECK_INTERVAL
-    );
+    scheduleJobs();
 
-    logger.success("✅ Subscription expiry check scheduled");
-
-    return app;
   } catch (error) {
-    logger.error("Failed to initialize application", error);
+    logger.error("Initialization failed", error);
     process.exit(1);
   }
 }
 
-/**
- * Start server
- */
+/* ==============================
+CRON JOBS
+============================== */
+
+function scheduleJobs() {
+  setInterval(async () => {
+    try {
+      await SubscriptionService.checkAndDeactivateExpired();
+    } catch (err) {
+      logger.error("Subscription check failed", err);
+    }
+  }, env.SUBSCRIPTION_CHECK_INTERVAL);
+
+  logger.info("⏰ Subscription checker active");
+}
+
+/* ==============================
+SERVER START
+============================== */
+
 async function startServer() {
-  try {
-    // Initialize app
-    await initializeApp();
+  await initialize();
 
-    // Start listening
-    app.listen(env.PORT, () => {
-      logger.success(`🚀 Server running on port ${env.PORT}`);
-      logger.info(`🌍 Base URL: ${env.BASE_URL}`);
-      logger.info(`🔧 Mode: ${env.NODE_ENV}`);
-      logger.info(`💾 Database: MongoDB`);
-      logger.info(`🔌 AI Engine: ${env.AI_SERVER_URL}`);
-      logger.info(`💳 PayPal: ${env.PAYPAL_MODE} mode`);
+  const PORT = process.env.PORT || 3000;
 
-      // Print available commands
-      console.log("\n" + "=".repeat(50));
-      console.log("Available Bot Commands:");
-      console.log("  /help     - Show help menu");
-      console.log("  /ai       - Ask AI a question");
-      console.log("  /upgrade  - Subscribe to Pro");
-      console.log("  /profile  - View your profile");
-      console.log("  /stats    - View statistics (admin only)");
-      console.log("=".repeat(50) + "\n");
-    });
-  } catch (error) {
-    logger.error("Failed to start server", error);
-    process.exit(1);
-  }
+  app.listen(PORT, () => {
+    logger.success(`🚀 Server running on port ${PORT}`);
+    logger.info(`🌍 Base URL: ${env.BASE_URL}`);
+    logger.info(`💾 MongoDB connected`);
+    logger.info(`💳 PayPal mode: ${env.PAYPAL_MODE}`);
+  });
 }
 
 /* ==============================
 GRACEFUL SHUTDOWN
 ============================== */
 
-process.on("SIGTERM", gracefulShutdown);
-process.on("SIGINT", gracefulShutdown);
+function shutdown() {
+  logger.warn("Shutting down server...");
 
-function gracefulShutdown() {
-  logger.info("📴 Shutting down gracefully...");
-
-  if (botInstance) {
-    botInstance.stopPolling();
+  if (bot) {
+    bot.stopPolling();
   }
 
   process.exit(0);
 }
 
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);
+
 /* ==============================
-ERROR HANDLING
+GLOBAL ERROR
 ============================== */
 
-process.on("unhandledRejection", (reason, promise) => {
-  logger.error("Unhandled Rejection at:", promise, "reason:", reason);
+process.on("unhandledRejection", (err) => {
+  logger.error("Unhandled Rejection", err);
 });
 
-process.on("uncaughtException", (error) => {
-  logger.error("Uncaught Exception:", error);
+process.on("uncaughtException", (err) => {
+  logger.error("Uncaught Exception", err);
   process.exit(1);
 });
 
 /* ==============================
-START APPLICATION
+START APP
 ============================== */
 
 startServer();
