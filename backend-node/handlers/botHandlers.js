@@ -4,6 +4,7 @@ import AIService from "../services/aiService.js";
 import PayPalService from "../services/paypalService.js";
 import SubscriptionService from "../services/subscriptionService.js";
 import AIUsageService from "../services/aiUsageService.js";
+import ReferralService from "../services/referralService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -42,6 +43,12 @@ export function registerBotHandlers(bot) {
   // /refer command (referral program)
   bot.onText(/\/refer/, handleReferCommand(bot));
 
+  // /claim command (claim referral rewards)
+  bot.onText(/\/claim/, handleClaimCommand(bot));
+
+  // /pricing command (show pricing plans)
+  bot.onText(/\/pricing/, handlePricingCommand(bot));
+
   // Handle callback queries from inline buttons
   bot.on("callback_query", handleCallbackQuery(bot));
 
@@ -77,11 +84,33 @@ function handleCallbackQuery(bot) {
         const profileCmd = handleProfileCommand(bot);
         await profileCmd({ chat: message.chat, from });
       } else if (data === "copy_referral") {
-        responseText = "🔗 Referral link copied to clipboard!";
+        responseText = "� Referral link copied! Share it with friends.";
         showAlert = true;
       } else if (data === "referral_stats") {
-        responseText = "Coming soon! View detailed referral stats.";
-        showAlert = true;
+        try {
+          const telegramId = from.id.toString();
+          const stats = await ReferralService.getReferralStats(telegramId);
+          responseText =
+            `🎁 Your Referral Stats:\n\n` +
+            `👥 Friends invited: ${stats.invitations}\n` +
+            `🎁 Rewards available: ${stats.reward} days\n` +
+            `💎 Completed invites: ${stats.sentTo}\n\n` +
+            (stats.reward > 0
+              ? `Use /claim to activate your ${stats.reward} days FREE PRO!`
+              : `Invite more friends to earn rewards!`);
+          showAlert = true;
+        } catch (err) {
+          responseText = "Failed to load referral stats";
+          showAlert = true;
+        }
+      } else if (data === "claim_reward") {
+        try {
+          const claimCmd = handleClaimCommand(bot);
+          await claimCmd({ chat: message.chat, from });
+        } catch (err) {
+          responseText = "Failed to claim reward";
+          showAlert = true;
+        }
       } else if (data === "view_plans") {
         responseText = "🆓 Free: 5 queries/month\n💎 Pro: Unlimited - $4.99/month";
         showAlert = true;
@@ -212,34 +241,45 @@ function handleStartCommand(bot) {
   return async (msg) => {
     const telegramId = msg.from.id.toString();
     const firstName = msg.from.first_name || "Friend";
+    const args = msg.text?.split(" ")[1]; // Get referral code if present
 
     try {
       // Create user on first interaction
-      const user = await SubscriptionService.findOrCreateUser(telegramId, {
+      let user = await SubscriptionService.findOrCreateUser(telegramId, {
         username: msg.from.username,
         firstName: msg.from.first_name,
         lastName: msg.from.last_name,
       });
 
+      // ===== Handle Referral =====
+      if (args && args.startsWith("ref_") && !user.referredBy) {
+        try {
+          await ReferralService.applyReferral(telegramId, args);
+          logger.info(`✅ Applied referral code ${args} to user ${telegramId}`);
+        } catch (err) {
+          logger.warn(`Failed to apply referral ${args}`, err.message);
+        }
+      }
+
       const welcomeText = `
-👋 Welcome to *QueClaw AI*, ${firstName}!
+👋 Welcome to <b>QueClaw AI</b>, ${firstName}!
 
 I'm your personal AI assistant powered by advanced language models.
 
-*🎯 Quick Start:*
+<b>🎯 Quick Start:</b>
 • Use /ai to ask any question
 • Use /help for all commands
 • Use /upgrade for unlimited access
 
-*💡 Get Started:*
+<b>💡 Get Started:</b>
 Try: /ai How does machine learning work?
 
-*🌟 Premium Features:*
-Upgrade to Pro for image generation, web search, and unlimited queries - just $4.99/month!
+<b>🌟 Premium Features:</b>
+Upgrade to Pro for image generation, web search, and unlimited queries - just <b>$4.99/month</b>!
       `;
 
       await bot.sendMessage(msg.chat.id, welcomeText, {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
             [
@@ -254,7 +294,7 @@ Upgrade to Pro for image generation, web search, and unlimited queries - just $4
         },
       });
 
-      logger.info(`New user started bot: ${telegramId}`);
+      logger.info(`New user started bot: ${telegramId}${args ? " (via referral)" : ""}`);
     } catch (error) {
       logger.error("Failed to send start message", error);
     }
@@ -727,39 +767,188 @@ function handleReferCommand(bot) {
   return async (msg) => {
     try {
       const telegramId = msg.from.id.toString();
+
+      // Get referral stats
+      const stats = await ReferralService.getReferralStats(telegramId);
       const botUsername = (await bot.getMe()).username;
 
-      const referralLink = `https://t.me/${botUsername}?start=ref_${telegramId}`;
       const referralText = `
-🎁 *Referral Program*
+🎁 <b>Referral Program</b>
 
 Share QueClaw with your friends and earn rewards!
 
-🔗 *Your Referral Link:*
-\`${referralLink}\`
+🔗 <b>Your Referral Link:</b>
+<code>${stats.referralLink}</code>
 
-💰 *Rewards:*
-• +1 month free Pro for each friend
-• Friend gets $4.99 credit
-• Unlimited earning potential!
+💰 <b>How It Works:</b>
+✅ Send your link to friends
+✅ Friend subscribes to Pro
+✅ You both get 7 days FREE Pro!
 
-📊 *Your Stats:*
-• Friends invited: 0
-• Rewards earned: $0
+📊 <b>Your Stats:</b>
+👥 Friends invited: <b>${stats.invitations}</b>
+🎁 Rewards earned: <b>${stats.reward} days</b>
+💎 Completed invites: <b>${stats.sentTo}</b>
+
+🏆 <b>Milestones:</b>
+⭐ 1st friend → 7 days Free
+⭐ 3 friends → 7 more days
+⭐ Every 3 → Additional rewards
+
+${
+  stats.reward > 0
+    ? `\n✨ <b>You have ${stats.reward} days to claim!</b>\nUse /claim to activate your reward.`
+    : ""
+}
       `;
 
       await bot.sendMessage(msg.chat.id, referralText, {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
-            [{ text: "📋 Copy Link", callback_data: "copy_referral" }],
-            [{ text: "📊 View Stats", callback_data: "referral_stats" }],
+            [
+              { text: "📋 Copy Link", callback_data: "copy_referral" },
+              { text: "📊 Share", url: `https://t.me/share/url?url=${encodeURIComponent(stats.referralLink)}` },
+            ],
+            ...(stats.reward > 0
+              ? [
+                  [
+                    { text: "🎁 Claim Reward", callback_data: "claim_reward" },
+                  ],
+                ]
+              : []),
           ],
         },
       });
+
+      logger.info(`Refer command used by ${telegramId}`);
     } catch (error) {
       logger.error("Refer command error", error);
       await bot.sendMessage(msg.chat.id, "❌ Failed to load referral program");
+    }
+  };
+}
+
+/**
+ * Handle /claim command (claim referral rewards)
+ */
+function handleClaimCommand(bot) {
+  return async (msg) => {
+    try {
+      const telegramId = msg.from.id.toString();
+
+      const result = await ReferralService.claimReferralReward(telegramId);
+
+      if (result.success) {
+        await bot.sendMessage(
+          msg.chat.id,
+          `🎉 <b>${result.message}</b>\n\n` +
+            `Your subscription expires on: <b>${result.expireDate?.toLocaleDateString()}</b>\n\n` +
+            `You can now use /profile to view your PRO status!`,
+          {
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "👤 View Profile", callback_data: "profile" }],
+                [{ text: "🎁 Refer More Friends", callback_data: "referral_stats" }],
+              ],
+            },
+          }
+        );
+      } else {
+        await bot.sendMessage(msg.chat.id, `❌ ${result.message}`, {
+          parse_mode: "HTML",
+        });
+      }
+
+      logger.info(`Claim command used by ${telegramId}`);
+    } catch (error) {
+      logger.error("Claim command error", error);
+      await bot.sendMessage(msg.chat.id, "❌ Failed to claim rewards");
+    }
+  };
+}
+
+/**
+ * Handle /pricing command (show all pricing plans and features)
+ */
+function handlePricingCommand(bot) {
+  return async (msg) => {
+    try {
+      const telegramId = msg.from.id.toString();
+      const user = await SubscriptionService.findOrCreateUser(telegramId);
+
+      const pricingText = `
+<b>💰 QueClaw Pricing Plans</b>
+
+<code>┌─────────────────────────────────────┐
+│  PLAN    │  PRICE   │  QUERIES
+├─────────────────────────────────────┤
+│  FREE    │  $0      │  20/day
+│  PRO     │  $4.99   │  500/day  
+│  PREMIUM │  $9.99   │  5000/day
+└─────────────────────────────────────┘</code>
+
+<b>📊 Detailed Comparison:</b>
+
+🆓 <b>FREE PLAN</b>
+   • <b>20 queries/day</b>
+   • <b>100 queries/month</b>
+   • 5 queries/hour rate limit
+   • Basic AI features
+   • Good for testing
+
+💎 <b>PRO PLAN</b> - <b>$4.99/month</b>
+   • <b>500 queries/day</b>
+   • <b>5000 queries/month</b>
+   • 100 queries/hour rate limit
+   • Priority processing
+   • Image generation
+   • Web search enabled
+   • 🎁 Can earn via referrals
+
+🚀 <b>PREMIUM PLAN</b> - <b>$9.99/month</b>
+   • <b>5000 queries/month</b>
+   • Unlimited daily processing
+   • All feature access
+   • Priority support
+   • Custom integrations
+
+<b>🎁 Referral Bonuses:</b>
+   ✅ Invite 1 friend → 7 days free pro
+   ✅ Invite 3 friends → 14 days free pro
+   ✅ Unlimited earning potential!
+
+<b>Your Current Plan:</b>
+   💎 Plan: <b>${user.plan === "pro" ? "🌟 PRO" : "🆓 FREE"}</b>
+   Status: ${user.subscriptionActive ? "✅ ACTIVE" : "❌ INACTIVE"}
+   ${
+     user.subscriptionActive
+       ? `Expires: <b>${user.subscriptionExpire?.toLocaleDateString()}</b>`
+       : ""
+   }
+      `;
+
+      await bot.sendMessage(msg.chat.id, pricingText, {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "💎 Get PRO", callback_data: "upgrade_pro" },
+              { text: "👤 My Plan", callback_data: "profile" },
+            ],
+            [
+              { text: "🎁 Refer & Earn", callback_data: "referral_stats" },
+              { text: "❓ Help", callback_data: "help" },
+            ],
+          ],
+        },
+      });
+
+      logger.info(`Pricing command used by ${telegramId}`);
+    } catch (error) {
+      logger.error("Pricing command error", error);
+      await bot.sendMessage(msg.chat.id, "❌ Failed to load pricing");
     }
   };
 }
