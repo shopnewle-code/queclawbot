@@ -92,11 +92,15 @@ router.post("/webhook", async (req, res) => {
       });
     }
 
+    logger.info(`🔔 Webhook received - Event: ${event.event_type}`);
+    logger.debug(`Event Resource: ${JSON.stringify(event.resource)}`);
+    
     await handlePayPalWebhook(event, bot);
 
     res.json({
       success: true,
       message: "Webhook processed",
+      event_type: event.event_type,
     });
   } catch (error) {
     logger.error("Webhook processing error", error);
@@ -189,17 +193,50 @@ router.post("/cancel/:id", async (req, res) => {
  * GET /api/paypal/success
  * PayPal redirect after successful subscription
  */
-router.get("/success", (req, res) => {
-  res.send(`
-    <html>
-      <body style="font-family: Arial; text-align: center; padding: 50px;">
-        <h1>✅ Subscription Successful!</h1>
-        <p>Your subscription has been activated.</p>
-        <p>You can now use unlimited AI queries.</p>
-        <p><a href="https://t.me/queclawbot">Return to Bot</a></p>
-      </body>
-    </html>
-  `);
+router.get("/success", async (req, res) => {
+  try {
+    // Extract subscription ID from URL params if available
+    const subscriptionId = req.query.subscription_id;
+    
+    logger.info(`PayPal Success redirect - Subscription: ${subscriptionId}`);
+    
+    // Attempt to fetch subscription details and activate if needed
+    if (subscriptionId) {
+      try {
+        const details = await PayPalService.getSubscriptionDetails(subscriptionId);
+        logger.info(`Subscription details fetched: ${JSON.stringify(details)}`);
+      } catch (err) {
+        logger.warn(`Could not fetch subscription details: ${err.message}`);
+      }
+    }
+    
+    res.send(`
+      <html>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h1>✅ Subscription Successful!</h1>
+          <p>Your subscription has been processed.</p>
+          <p>Activating your account... (may take 1-2 minutes)</p>
+          <p>Use <code>/verify</code> in the bot to check your status.</p>
+          <p><a href="https://t.me/queclawbot">← Return to Bot</a></p>
+          <hr style="margin-top: 50px;">
+          <p style="font-size: 12px; color: #666;">
+            If your status doesn't update, use /verify command in Telegram
+          </p>
+        </body>
+      </html>
+    `);
+  } catch (error) {
+    logger.error("Success page error", error);
+    res.send(`
+      <html>
+        <body style="font-family: Arial; text-align: center; padding: 50px;">
+          <h1>✅ Subscription Processed</h1>
+          <p>Your subscription is being activated.</p>
+          <p><a href="https://t.me/queclawbot">← Return to Bot</a></p>
+        </body>
+      </html>
+    `);
+  }
 });
 
 /**

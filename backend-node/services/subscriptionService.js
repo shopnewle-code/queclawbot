@@ -162,9 +162,61 @@ export class SubscriptionService {
   }
 
   /**
-   * Get user statistics
+   * Check and activate pending subscriptions (fallback for webhook failures)
    */
-  static async getStats() {
+  static async checkAndActivatePending() {
+    try {
+      const pending = await User.find({
+        subscriptionId: { $ne: null },
+        subscriptionActive: false,
+      });
+
+      if (pending.length === 0) {
+        return [];
+      }
+
+      const activated = [];
+
+      for (const user of pending) {
+        try {
+          // Mark as active if it has a subscription ID but wasn't activated
+          user.subscriptionActive = true;
+          user.plan = PLANS.PRO;
+          
+          if (!user.subscriptionExpire) {
+            const expire = new Date();
+            expire.setMonth(expire.getMonth() + SUBSCRIPTION_DURATION_MONTHS);
+            user.subscriptionExpire = expire;
+          }
+          
+          await user.save();
+          activated.push(user);
+          
+          logger.success(
+            `✅ Auto-activated pending subscription for user ${user.telegramId}`
+          );
+        } catch (err) {
+          logger.warn(
+            `Failed to auto-activate subscription for ${user.telegramId}`,
+            err
+          );
+        }
+      }
+
+      if (activated.length > 0) {
+        logger.success(
+          `Auto-activated ${activated.length} pending subscriptions`
+        );
+      }
+
+      return activated;
+    } catch (error) {
+      logger.error("Failed to check pending subscriptions", error);
+      throw error;
+    }
+  }
+
+  /**
     try {
       const totalUsers = await User.countDocuments();
       const activeSubscriptions = await User.countDocuments({

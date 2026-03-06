@@ -168,12 +168,13 @@ function scheduleJobs() {
   setInterval(async () => {
     try {
       await SubscriptionService.checkAndDeactivateExpired();
+      await SubscriptionService.checkAndActivatePending();
     } catch (err) {
       logger.error("Subscription check failed", err);
     }
   }, env.SUBSCRIPTION_CHECK_INTERVAL);
 
-  logger.info("⏰ Subscription checker active");
+  logger.info("⏰ Subscription checker active (deactivate expired + activate pending)");
 }
 
 /* ==============================

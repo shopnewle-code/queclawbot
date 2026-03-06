@@ -11,28 +11,32 @@ import { logger } from "../utils/logger.js";
 export async function handlePayPalWebhook(event, bot) {
   try {
     logger.info(`📩 PayPal Event: ${event.event_type}`);
+    logger.info(`Event Type: ${event.event_type}, Resource ID: ${event.resource?.id}`);
 
     switch (event.event_type) {
       case PAYPAL_EVENTS.ACTIVATION:
+        logger.info(`🎯 Processing subscription activation event`);
         await handleSubscriptionActivation(event, bot);
         break;
 
       case PAYPAL_EVENTS.PAYMENT_COMPLETED:
+        logger.info(`💳 Processing payment completed event`);
         await handlePaymentCompleted(event, bot);
         break;
 
       case PAYPAL_EVENTS.CANCELLED:
       case PAYPAL_EVENTS.EXPIRED:
+        logger.info(`❌ Processing subscription cancellation/expiry event`);
         await handleSubscriptionCancelled(event, bot);
         break;
 
       default:
-        logger.debug(`Unhandled PayPal event: ${event.event_type}`);
+        logger.warn(`⚠️ Unhandled PayPal event: ${event.event_type}`);
     }
 
     return true;
   } catch (error) {
-    logger.error("PayPal webhook error", error);
+    logger.error("❌ PayPal webhook error", error);
     return false;
   }
 }
@@ -42,10 +46,25 @@ export async function handlePayPalWebhook(event, bot) {
  */
 async function handleSubscriptionActivation(event, bot) {
   try {
-    const telegramId = event.resource.custom_id;
+    let telegramId = event.resource.custom_id;
     const subscriptionId = event.resource.id;
 
     logger.info(`Activating subscription: ${subscriptionId} for user ${telegramId}`);
+
+    // Validation: check if telegramId exists
+    if (!telegramId) {
+      logger.warn(`⚠️ No custom_id in webhook event. Subscription ID: ${subscriptionId}`);
+      
+      // Try to find user by subscription ID
+      const user = await User.findOne({ subscriptionId });
+      if (user) {
+        telegramId = user.telegramId;
+        logger.info(`Found user by subscriptionId: ${telegramId}`);
+      } else {
+        logger.error(`❌ Could not find telegram ID for subscription ${subscriptionId}`);
+        return;
+      }
+    }
 
     const user = await SubscriptionService.activateSubscription(
       telegramId,
@@ -54,29 +73,30 @@ async function handleSubscriptionActivation(event, bot) {
 
     if (user && user.subscriptionActive) {
       logger.success(
-        `✅ User ${telegramId} subscription status: ${user.subscriptionActive}`
+        `✅ User ${telegramId} subscription activated! Status: ${user.subscriptionActive}, Plan: ${user.plan}`
       );
 
       try {
         await bot.sendMessage(
           telegramId,
-          "🎉 Subscription Activated!\n\n" +
+          "🎉 <b>Subscription Activated!</b>\n\n" +
             "✨ <b>Unlimited AI unlocked!</b>\n" +
             "You now have access to all premium features.\n" +
             "📊 Plan: 🌟 PRO\n" +
-            "⏱️ Duration: 30 days\n\n" +
-            "Use /ai &lt;prompt&gt; to start asking questions!"
+            "⏱️ Expires: " + (user.subscriptionExpire?.toLocaleDateString() || "N/A") + "\n\n" +
+            "Use /ai &lt;prompt&gt; to start asking questions!",
+          { parse_mode: "HTML" }
         );
       } catch (err) {
-        logger.warn(`Failed to send activation message to ${telegramId}`, err);
+        logger.warn(`Failed to send activation message to ${telegramId}`, err.message);
       }
     } else {
       logger.error(
-        `Failed to activate subscription for ${telegramId}: user not found or not activated`
+        `❌ Failed to activate subscription for ${telegramId}. User: ${user ? "found" : "not found"}, Active: ${user?.subscriptionActive}`
       );
     }
   } catch (error) {
-    logger.error("Failed to handle subscription activation", error);
+    logger.error("❌ Failed to handle subscription activation", error);
   }
 }
 
