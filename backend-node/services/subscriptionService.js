@@ -40,58 +40,31 @@ export class SubscriptionService {
     durationMonths = SUBSCRIPTION_DURATION_MONTHS
   ) {
     try {
-      logger.info(`\ud83d\udd17 [1/5] Looking up user: ${telegramId}`);
+      logger.info(`Looking up user: ${telegramId}`);
       const user = await User.findOne({ telegramId });
 
       if (!user) {
-        logger.error(`\u274c [1/5] User NOT FOUND for subscription activation: ${telegramId}`);
+        logger.error(`User NOT FOUND for subscription activation: ${telegramId}`);
         return null;
       }
-      logger.success(`\u2705 [1/5] User found: ${user._id}`);
+      logger.success(`User found: ${user._id}`);
 
-      logger.info(`\ud83d\udd17 [2/5] Calculating expiry date...`);
       const expire = new Date();
       expire.setMonth(expire.getMonth() + durationMonths);
-      logger.info(`\ud83d\udd17 [2/5] Expiry date set to: ${expire.toISOString()}`);
 
-      logger.info(`\ud83d\udd17 [3/5] Updating MongoDB with subscription data...`);
-      const updated = await User.findOneAndUpdate(
-        { telegramId },
-        {
-          subscriptionActive: true,
-          subscriptionId,
-          subscriptionExpire: expire,
-          plan: PLANS.PRO,
-          aiUsage: 0,
-          lastUsageReset: new Date(),
-        },
-        { new: true }
-      );
+      // Use direct save instead of findOneAndUpdate
+      user.subscriptionActive = true;
+      user.subscriptionId = subscriptionId;
+      user.subscriptionExpire = expire;
+      user.plan = PLANS.PRO;
+      user.aiUsage = 0;
+      user.lastUsageReset = new Date();
 
-      logger.success(`\u2705 [3/5] MongoDB update completed`);
-
-      if (!updated) {
-        logger.error(`\u274c [4/5] DATABASE ERROR: findOneAndUpdate returned null for ${telegramId}`);
-        return null;
-      }
-
-      logger.info(`\ud83d\udd17 [4/5] Verifying saved data:`);
-      logger.info(`    - subscriptionActive: ${updated.subscriptionActive}`);
-      logger.info(`    - subscriptionId: ${updated.subscriptionId}`);
-      logger.info(`    - plan: ${updated.plan}`);
-      logger.info(`    - subscriptionExpire: ${updated.subscriptionExpire}`);
-
-      if (!updated.subscriptionActive) {
-        logger.error(`\u274c [5/5] CRITICAL: subscriptionActive is still FALSE after update!`);
-        return updated;
-      }
-
-      logger.success(
-        `\u2705\u2705\u2705 [5/5] Subscription SUCCESSFULLY activated for ${telegramId}`
-      );
-      return updated;
+      const saved = await user.save();
+      logger.success(`Subscription activated and saved for ${telegramId}`);
+      return saved;
     } catch (error) {
-      logger.error(`\u274c [ERROR] Failed to activate subscription for ${telegramId}`, error);
+      logger.error(`Failed to activate subscription for ${telegramId}`, error);
       throw error;
     }
   }

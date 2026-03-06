@@ -173,6 +173,80 @@ router.get("/verify/:telegramId", async (req, res) => {
 });
 
 /**
+ * POST /api/paypal/test-activate/:telegramId
+ * Test subscription activation directly
+ */
+router.post("/test-activate/:telegramId", async (req, res) => {
+  try {
+    const { User } = await import("../models/User.js");
+    const telegramId = req.params.telegramId;
+
+    logger.warn(`🔬 TEST ACTIVATION for ${telegramId}`);
+
+    // Step 1: Find user
+    logger.info(`[1/6] Finding user...`);
+    const user = await User.findOne({ telegramId });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+    logger.info(`[1/6] User found: ${user._id}`);
+
+    // Step 2: Prepare data
+    logger.info(`[2/6] Preparing subscription data...`);
+    const expire = new Date();
+    expire.setMonth(expire.getMonth() + 1);
+
+    // Step 3: Update object
+    logger.info(`[3/6] Updating user object...`);
+    user.subscriptionActive = true;
+    user.subscriptionId = `TEST-${Date.now()}`;
+    user.subscriptionExpire = expire;
+    user.plan = "pro";
+
+    // Step 4: Save
+    logger.info(`[4/6] Saving to MongoDB...`);
+    const saved = await user.save();
+    logger.success(`[4/6] Saved successfully`);
+
+    // Step 5: Verify in memory
+    logger.info(`[5/6] Verifying saved object:`);
+    logger.info(`  subscriptionActive: ${saved.subscriptionActive}`);
+    logger.info(`  subscriptionId: ${saved.subscriptionId}`);
+    logger.info(`  plan: ${saved.plan}`);
+
+    // Step 6: Fetch from DB
+    logger.info(`[6/6] Fetching fresh from MongoDB...`);
+    const fresh = await User.findOne({ telegramId });
+    logger.info(`[6/6] Fresh from DB:`);
+    logger.info(`  subscriptionActive: ${fresh.subscriptionActive}`);
+    logger.info(`  subscriptionId: ${fresh.subscriptionId}`);
+    logger.info(`  plan: ${fresh.plan}`);
+
+    res.json({
+      success: true,
+      message: "Test activation completed",
+      user: {
+        telegramId: fresh.telegramId,
+        subscriptionActive: fresh.subscriptionActive,
+        subscriptionId: fresh.subscriptionId,
+        plan: fresh.plan,
+        subscriptionExpire: fresh.subscriptionExpire,
+      },
+    });
+  } catch (error) {
+    logger.error("Test activation failed", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+    });
+  }
+});
+
+/**
  * POST /api/paypal/debug-activate/:telegramId
  * Manual activation for testing (development only)
  */
@@ -195,17 +269,13 @@ router.post("/debug-activate/:telegramId", async (req, res) => {
     const expire = new Date();
     expire.setMonth(expire.getMonth() + 1);
 
-    const updated = await User.findOneAndUpdate(
-      { telegramId },
-      {
-        subscriptionActive: true,
-        subscriptionId: `DEBUG-${Date.now()}`,
-        subscriptionExpire: expire,
-        plan: "pro",
-        aiUsage: 0,
-      },
-      { new: true }
-    );
+    user.subscriptionActive = true;
+    user.subscriptionId = `DEBUG-${Date.now()}`;
+    user.subscriptionExpire = expire;
+    user.plan = "pro";
+    user.aiUsage = 0;
+
+    const saved = await user.save();
 
     logger.success(`🔧 MANUAL ACTIVATION COMPLETED for ${telegramId}`);
 
@@ -213,9 +283,9 @@ router.post("/debug-activate/:telegramId", async (req, res) => {
       success: true,
       message: "Manually activated subscription",
       user: {
-        subscriptionActive: updated.subscriptionActive,
-        plan: updated.plan,
-        subscriptionExpire: updated.subscriptionExpire,
+        subscriptionActive: saved.subscriptionActive,
+        plan: saved.plan,
+        subscriptionExpire: saved.subscriptionExpire,
       },
     });
   } catch (error) {
