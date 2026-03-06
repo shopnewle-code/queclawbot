@@ -110,17 +110,21 @@ export class SubscriptionService {
       const expire = new Date();
       expire.setMonth(expire.getMonth() + SUBSCRIPTION_DURATION_MONTHS);
 
-      const updated = await User.findOneAndUpdate(
-        { subscriptionId },
-        {
-          subscriptionExpire: expire,
-          aiUsage: 0,
-          lastUsageReset: new Date(),
-        },
-        { new: true }
-      );
+      // Use direct save to ensure update persists
+      user.subscriptionExpire = expire;
+      user.aiUsage = 0;
+      user.lastUsageReset = new Date();
+      user.queriesUsedToday = 0;
+      user.queriesUsedHourly = 0;
+      user.queriesUsedMonthly = 0;
+      user.subscriptionNotified = false; // Reset notification flag
 
-      logger.success(`Subscription renewed for user ${user.telegramId}`);
+      const updated = await user.save();
+
+      logger.success(`✅ Subscription renewed for user ${user.telegramId}`);
+      logger.info(`  New expiry: ${updated.subscriptionExpire}`);
+      logger.info(`  Plan: ${updated.plan}`);
+
       return updated;
     } catch (error) {
       logger.error(`Failed to renew subscription ${subscriptionId}`, error);
@@ -197,12 +201,20 @@ export class SubscriptionService {
             (user.subscriptionExpire - now) / (1000 * 60 * 60)
           );
 
+          // Determine plan display
+          let planDisplay = "🆓 FREE";
+          if (user.plan === PLANS.PRO) {
+            planDisplay = "💎 PRO";
+          } else if (user.plan === PLANS.PREMIUM) {
+            planDisplay = "🚀 PREMIUM";
+          }
+
           await bot.sendMessage(
             user.telegramId,
             `⏰ <b>Subscription Expiring Soon!</b>\n\n` +
-              `Your PRO subscription expires in <b>${hoursLeft} hours</b>.\n` +
+              `Your ${planDisplay} subscription expires in <b>${hoursLeft} hours</b>.\n` +
               `Expiry Date: ${user.subscriptionExpire?.toLocaleDateString()}\n\n` +
-              `Use /upgrade to renew your subscription and continue enjoying unlimited AI queries!`,
+              `Use /upgrade to renew your subscription and continue enjoying premium AI queries!`,
             { parse_mode: "HTML" }
           );
 
@@ -272,9 +284,17 @@ export class SubscriptionService {
 
       for (const user of pending) {
         try {
+          // Determine plan - default to PRO if not set
+          let planToUse = user.plan || PLANS.PRO;
+          
+          // If user has no plan set, use PRO
+          if (!user.plan || user.plan === PLANS.FREE) {
+            planToUse = PLANS.PRO;
+          }
+
           // Mark as active if it has a subscription ID but wasn't activated
           user.subscriptionActive = true;
-          user.plan = PLANS.PRO;
+          user.plan = planToUse;
           
           if (!user.subscriptionExpire) {
             const expire = new Date();
@@ -286,7 +306,7 @@ export class SubscriptionService {
           activated.push(user);
           
           logger.success(
-            `✅ Auto-activated pending subscription for user ${user.telegramId}`
+            `✅ Auto-activated pending subscription for user ${user.telegramId} with plan ${planToUse}`
           );
         } catch (err) {
           logger.warn(
@@ -298,7 +318,7 @@ export class SubscriptionService {
 
       if (activated.length > 0) {
         logger.success(
-          `Auto-activated ${activated.length} pending subscriptions`
+          `✅ Auto-activated ${activated.length} pending subscriptions`
         );
       }
 

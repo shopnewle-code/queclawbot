@@ -67,14 +67,14 @@ router.post("/create-order", async (req, res) => {
 
 /**
  * POST /api/paypal/webhook
- * PayPal webhook endpoint
+ * PayPal webhook endpoint - MAIN ENTRY POINT FOR PAYPAL EVENTS
  */
 router.post("/webhook", async (req, res) => {
   try {
     const event = req.body;
 
     if (!event.event_type) {
-      logger.warn("Invalid webhook: missing event_type");
+      logger.warn("❌ Invalid webhook: missing event_type");
       return res.status(400).json({
         success: false,
         error: "Invalid webhook event",
@@ -92,23 +92,33 @@ router.post("/webhook", async (req, res) => {
       });
     }
 
-    logger.info(`🔔 Webhook received - Event: ${event.event_type}`);
-    logger.info(`Resource ID: ${event.resource?.id}`);
-    logger.info(`Custom ID (TelegramID): ${event.resource?.custom_id}`);
+    logger.warn(`\n${"=".repeat(80)}`);
+    logger.warn(`📡 PAYPAL WEBHOOK RECEIVED`);
+    logger.warn(`Event Type: ${event.event_type}`);
+    logger.warn(`Resource ID: ${event.resource?.id}`);
+    logger.warn(`Custom ID: ${event.resource?.custom_id}`);
+    logger.warn(`Status: ${event.resource?.status}`);
+    logger.warn(`${"=".repeat(80)}\n`);
     
     // Process webhook asynchronously but wait for it
-    await handlePayPalWebhook(event, bot);
+    const result = await handlePayPalWebhook(event, bot);
 
+    logger.success(`✅ Webhook processed successfully`);
+
+    // Always return 200 to PayPal to confirm receipt
     res.json({
       success: true,
       message: "Webhook processed",
       event_type: event.event_type,
+      processed: result,
     });
   } catch (error) {
-    logger.error("Webhook processing error", error);
-    res.status(500).json({
+    logger.error("❌ Webhook processing error", error);
+    // Still return 200 to prevent PayPal from retrying with old data
+    res.json({
       success: false,
       error: "Webhook processing failed",
+      message: error.message,
     });
   }
 });
@@ -425,6 +435,77 @@ router.post("/test-webhook/:subscriptionId", async (req, res) => {
       success: false,
       error: error.message,
       stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
+/**
+ * POST /api/paypal/debug-resend-webhook/:subscriptionId
+ * Manually resend webhook for testing (simulates PayPal resend from dashboard)
+ */
+router.post("/debug-resend-webhook/:subscriptionId", async (req, res) => {
+  try {
+    const subscriptionId = req.params.subscriptionId;
+    const { User } = await import("../models/User.js");
+    const { handlePayPalWebhook } = await import("../handlers/paypalWebhookHandler.js");
+
+    logger.warn(`\n${"=".repeat(80)}`);
+    logger.warn(`🧪 DEBUG: Manually resending webhook for subscription ${subscriptionId}`);
+    logger.warn(`${"=".repeat(80)}\n`);
+
+    // Fetch subscription details from PayPal
+    const subscriptionDetails = await PayPalService.getSubscriptionDetails(subscriptionId);
+
+    if (!subscriptionDetails) {
+      return res.status(404).json({
+        success: false,
+        error: "Subscription not found in PayPal",
+      });
+    }
+
+    // Build webhook event
+    const simulatedEvent = {
+      event_type: "BILLING.SUBSCRIPTION.ACTIVATED",
+      resource: {
+        id: subscriptionId,
+        custom_id: subscriptionDetails.custom_id,
+        status: subscriptionDetails.status,
+      },
+    };
+
+    logger.info(`Simulated Event:`, JSON.stringify(simulatedEvent, null, 2));
+
+    // Get bot instance
+    const bot = req.app.locals.bot;
+    if (!bot) {
+      return res.status(500).json({
+        success: false,
+        error: "Bot not initialized",
+      });
+    }
+
+    // Process webhook
+    const result = await handlePayPalWebhook(simulatedEvent, bot);
+
+    // Verify result
+    const user = await User.findOne({ telegramId: subscriptionDetails.custom_id });
+
+    res.json({
+      success: true,
+      message: "Webhook resend simulated",
+      result,
+      userState: user ? {
+        telegramId: user.telegramId,
+        subscriptionActive: user.subscriptionActive,
+        plan: user.plan,
+        subscriptionExpire: user.subscriptionExpire,
+      } : null,
+    });
+  } catch (error) {
+    logger.error("Debug webhook resend failed", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
     });
   }
 });
