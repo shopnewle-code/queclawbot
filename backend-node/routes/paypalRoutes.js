@@ -74,6 +74,7 @@ router.post("/webhook", async (req, res) => {
     const event = req.body;
 
     if (!event.event_type) {
+      logger.warn("Invalid webhook: missing event_type");
       return res.status(400).json({
         success: false,
         error: "Invalid webhook event",
@@ -81,11 +82,10 @@ router.post("/webhook", async (req, res) => {
     }
 
     // Get bot instance from request context
-    // Note: You'll need to pass the bot instance to the express app
     const bot = req.app.locals.bot;
 
     if (!bot) {
-      logger.warn("Bot instance not available for webhook");
+      logger.error("❌ Bot instance not available for webhook");
       return res.status(500).json({
         success: false,
         error: "Bot not initialized",
@@ -93,8 +93,10 @@ router.post("/webhook", async (req, res) => {
     }
 
     logger.info(`🔔 Webhook received - Event: ${event.event_type}`);
-    logger.debug(`Event Resource: ${JSON.stringify(event.resource)}`);
+    logger.info(`Resource ID: ${event.resource?.id}`);
+    logger.info(`Custom ID (TelegramID): ${event.resource?.custom_id}`);
     
+    // Process webhook asynchronously but wait for it
     await handlePayPalWebhook(event, bot);
 
     res.json({
@@ -157,6 +159,8 @@ router.get("/verify/:telegramId", async (req, res) => {
         subscriptionExpire: user.subscriptionExpire,
         plan: user.plan,
         aiUsage: user.aiUsage,
+        queriesUsedToday: user.queriesUsedToday,
+        totalQueries: user.totalQueries,
       },
     });
   } catch (error) {
@@ -164,6 +168,61 @@ router.get("/verify/:telegramId", async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to verify subscription",
+    });
+  }
+});
+
+/**
+ * POST /api/paypal/debug-activate/:telegramId
+ * Manual activation for testing (development only)
+ */
+router.post("/debug-activate/:telegramId", async (req, res) => {
+  try {
+    const { User } = await import("../models/User.js");
+    const telegramId = req.params.telegramId;
+    
+    logger.warn(`🔧 MANUAL ACTIVATION TRIGGERED for ${telegramId}`);
+    
+    const user = await User.findOne({ telegramId });
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    // Manual activation
+    const expire = new Date();
+    expire.setMonth(expire.getMonth() + 1);
+
+    const updated = await User.findOneAndUpdate(
+      { telegramId },
+      {
+        subscriptionActive: true,
+        subscriptionId: `DEBUG-${Date.now()}`,
+        subscriptionExpire: expire,
+        plan: "pro",
+        aiUsage: 0,
+      },
+      { new: true }
+    );
+
+    logger.success(`🔧 MANUAL ACTIVATION COMPLETED for ${telegramId}`);
+
+    res.json({
+      success: true,
+      message: "Manually activated subscription",
+      user: {
+        subscriptionActive: updated.subscriptionActive,
+        plan: updated.plan,
+        subscriptionExpire: updated.subscriptionExpire,
+      },
+    });
+  } catch (error) {
+    logger.error("Failed to manually activate", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to activate",
     });
   }
 });

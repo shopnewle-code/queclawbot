@@ -49,7 +49,9 @@ async function handleSubscriptionActivation(event, bot) {
     let telegramId = event.resource.custom_id;
     const subscriptionId = event.resource.id;
 
-    logger.info(`Activating subscription: ${subscriptionId} for user ${telegramId}`);
+    logger.info(`🎯 Processing subscription activation...`);
+    logger.info(`  Subscription ID: ${subscriptionId}`);
+    logger.info(`  Telegram ID: ${telegramId}`);
 
     // Validation: check if telegramId exists
     if (!telegramId) {
@@ -59,21 +61,32 @@ async function handleSubscriptionActivation(event, bot) {
       const user = await User.findOne({ subscriptionId });
       if (user) {
         telegramId = user.telegramId;
-        logger.info(`Found user by subscriptionId: ${telegramId}`);
+        logger.info(`✅ Found user by subscriptionId: ${telegramId}`);
       } else {
         logger.error(`❌ Could not find telegram ID for subscription ${subscriptionId}`);
         return;
       }
     }
 
+    logger.info(`📝 Calling activateSubscription for ${telegramId}`);
     const user = await SubscriptionService.activateSubscription(
       telegramId,
       subscriptionId
     );
 
-    if (user && user.subscriptionActive) {
+    if (!user) {
+      logger.error(`❌ activateSubscription returned null for ${telegramId}`);
+      return;
+    }
+
+    logger.info(`✅ Subscription activation result:`);
+    logger.info(`  subscriptionActive: ${user.subscriptionActive}`);
+    logger.info(`  plan: ${user.plan}`);
+    logger.info(`  subscriptionExpire: ${user.subscriptionExpire}`);
+
+    if (user.subscriptionActive) {
       logger.success(
-        `✅ User ${telegramId} subscription activated! Status: ${user.subscriptionActive}, Plan: ${user.plan}`
+        `✅✅✅ User ${telegramId} subscription ACTIVATED! Status: ${user.subscriptionActive}, Plan: ${user.plan}, Expires: ${user.subscriptionExpire}`
       );
 
       try {
@@ -84,7 +97,7 @@ async function handleSubscriptionActivation(event, bot) {
             "You now have access to all premium features.\n" +
             "📊 Plan: 🌟 PRO\n" +
             "⏱️ Expires: " + (user.subscriptionExpire?.toLocaleDateString() || "N/A") + "\n\n" +
-            "Use /ai &lt;prompt&gt; to start asking questions!",
+            "Use /verify to confirm or /ai to start asking questions!",
           { parse_mode: "HTML" }
         );
       } catch (err) {
@@ -92,7 +105,13 @@ async function handleSubscriptionActivation(event, bot) {
       }
     } else {
       logger.error(
-        `❌ Failed to activate subscription for ${telegramId}. User: ${user ? "found" : "not found"}, Active: ${user?.subscriptionActive}`
+        `❌❌❌ CRITICAL: Subscription activation FAILED for ${telegramId}!`
+      );
+      logger.error(
+        `  User found: ${user ? "YES" : "NO"}`
+      );
+      logger.error(
+        `  subscriptionActive: ${user?.subscriptionActive}`
       );
     }
   } catch (error) {
