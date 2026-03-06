@@ -45,22 +45,35 @@ async function handleSubscriptionActivation(event, bot) {
     const telegramId = event.resource.custom_id;
     const subscriptionId = event.resource.id;
 
+    logger.info(`Activating subscription: ${subscriptionId} for user ${telegramId}`);
+
     const user = await SubscriptionService.activateSubscription(
       telegramId,
       subscriptionId
     );
 
-    if (user) {
+    if (user && user.subscriptionActive) {
+      logger.success(
+        `✅ User ${telegramId} subscription status: ${user.subscriptionActive}`
+      );
+
       try {
         await bot.sendMessage(
           telegramId,
-          "🎉 Subscription Activated!\n\n✨ Unlimited AI unlocked!\n" +
-            "You now have access to all premium features.\n\n" +
-            "Use /ai <prompt> to start asking questions!"
+          "🎉 Subscription Activated!\n\n" +
+            "✨ <b>Unlimited AI unlocked!</b>\n" +
+            "You now have access to all premium features.\n" +
+            "📊 Plan: 🌟 PRO\n" +
+            "⏱️ Duration: 30 days\n\n" +
+            "Use /ai &lt;prompt&gt; to start asking questions!"
         );
       } catch (err) {
-        logger.warn(`Failed to send activation message to ${telegramId}`);
+        logger.warn(`Failed to send activation message to ${telegramId}`, err);
       }
+    } else {
+      logger.error(
+        `Failed to activate subscription for ${telegramId}: user not found or not activated`
+      );
     }
   } catch (error) {
     logger.error("Failed to handle subscription activation", error);
@@ -105,19 +118,24 @@ async function handleSubscriptionCancelled(event, bot) {
   try {
     const subscriptionId = event.resource.id;
 
-    const user = await SubscriptionService.cancelSubscription(subscriptionId);
+    // Find user by subscription ID first
+    const user = await User.findOne({ subscriptionId });
 
     if (user) {
-      try {
-        await bot.sendMessage(
-          user.telegramId,
-          "⚠️ Subscription Cancelled\n\n" +
-            "Your premium subscription has been cancelled.\n" +
-            "You now have access to the free tier only (5 queries/month).\n\n" +
-            "Use /upgrade to resubscribe anytime!"
-        );
-      } catch (err) {
-        logger.warn(`Failed to send cancellation message to ${user.telegramId}`);
+      // Now cancel using the telegramId
+      const cancelled = await SubscriptionService.cancelSubscription(user.telegramId);
+
+      if (cancelled) {
+        try {
+          await bot.sendMessage(
+            user.telegramId,
+            "⚠️ Subscription Cancelled\n\n" +
+              "Your premium subscription has been cancelled.\n" +
+              "You now have access to the free tier only (5 queries/month).\n\n" +
+              "Use /upgrade to resubscribe anytime!"
+          );
+        } catch (err) {
+          logger.warn(`Failed to send cancellation message to ${user.telegramId}`);
       }
     }
   } catch (error) {
