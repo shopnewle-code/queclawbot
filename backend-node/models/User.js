@@ -59,6 +59,63 @@ const userSchema = new mongoose.Schema(
       },
     ],
 
+    // Query Tracking (Rate Limiting & Usage Tracking)
+    queriesUsedToday: {
+      type: Number,
+      default: 0,
+    },
+    queriesUsedHourly: {
+      type: Number,
+      default: 0,
+    },
+    queriesUsedMonthly: {
+      type: Number,
+      default: 0,
+    },
+    totalQueries: {
+      type: Number,
+      default: 0,
+    },
+    queryResetDaily: {
+      type: Date,
+      default: () => new Date(Date.now() + 24 * 60 * 60 * 1000),
+    },
+    queryResetHourly: {
+      type: Date,
+      default: () => new Date(Date.now() + 60 * 60 * 1000),
+    },
+    queryResetMonthly: {
+      type: Date,
+      default: () => {
+        const next = new Date();
+        next.setMonth(next.getMonth() + 1);
+        return next;
+      },
+    },
+    lastQuery: Date,
+
+    // Subscription Notifications
+    subscriptionNotified: {
+      type: Boolean,
+      default: false,
+    },
+
+    // Referral System
+    referralCode: {
+      type: String,
+      unique: true,
+      sparse: true,
+    },
+    referredBy: String,
+    referralCount: {
+      type: Number,
+      default: 0,
+    },
+    referralReward: {
+      type: Number,
+      default: 0,
+    },
+
     // User Settings
     language: {
       type: String,

@@ -167,14 +167,24 @@ CRON JOBS
 function scheduleJobs() {
   setInterval(async () => {
     try {
+      // Deactivate expired subscriptions
       await SubscriptionService.checkAndDeactivateExpired();
+      // Activate pending subscriptions (webhook fallback)
       await SubscriptionService.checkAndActivatePending();
+      // Send expiry warnings (24 hours before)
+      if (bot) {
+        await SubscriptionService.checkAndNotifyExpiringSubscriptions(bot);
+      }
+      // Reset notification flags for renewed subscriptions
+      await SubscriptionService.resetExpiryNotifications();
     } catch (err) {
       logger.error("Subscription check failed", err);
     }
   }, env.SUBSCRIPTION_CHECK_INTERVAL);
 
-  logger.info("⏰ Subscription checker active (deactivate expired + activate pending)");
+  logger.info(
+    "⏰ Subscription manager active: expiry detection, warnings, and auto-activation"
+  );
 }
 
 /* ==============================

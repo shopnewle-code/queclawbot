@@ -144,19 +144,115 @@ export class SubscriptionService {
       });
 
       if (expired.length === 0) {
-        return;
+        return [];
       }
+
+      const deactivated = [];
 
       for (const user of expired) {
         user.subscriptionActive = false;
         user.plan = PLANS.FREE;
         await user.save();
+        deactivated.push(user);
+
+        logger.warn(
+          `⏰ Subscription expired for user ${user.telegramId}: ${user.subscriptionExpire}`
+        );
       }
 
-      logger.info(`Deactivated ${expired.length} expired subscriptions`);
-      return expired;
+      logger.info(
+        `⏰ Auto-deactivated ${deactivated.length} expired subscriptions`
+      );
+      return deactivated;
     } catch (error) {
       logger.error("Failed to check expired subscriptions", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Check and send expiry warnings (24 hours before expiry)
+   */
+  static async checkAndNotifyExpiringSubscriptions(bot) {
+    try {
+      const now = new Date();
+      const in24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      // Find subscriptions expiring in next 24 hours
+      const expiring = await User.find({
+        subscriptionActive: true,
+        subscriptionExpire: {
+          $gte: now,
+          $lte: in24Hours,
+        },
+        subscriptionNotified: { $ne: true },
+      });
+
+      if (expiring.length === 0) {
+        return [];
+      }
+
+      const notified = [];
+
+      for (const user of expiring) {
+        try {
+          const hoursLeft = Math.round(
+            (user.subscriptionExpire - now) / (1000 * 60 * 60)
+          );
+
+          await bot.sendMessage(
+            user.telegramId,
+            `⏰ <b>Subscription Expiring Soon!</b>\n\n` +
+              `Your PRO subscription expires in <b>${hoursLeft} hours</b>.\n` +
+              `Expiry Date: ${user.subscriptionExpire?.toLocaleDateString()}\n\n` +
+              `Use /upgrade to renew your subscription and continue enjoying unlimited AI queries!`,
+            { parse_mode: "HTML" }
+          );
+
+          user.subscriptionNotified = true;
+          await user.save();
+          notified.push(user);
+
+          logger.info(
+            `📧 Expiry warning sent to user ${user.telegramId} (${hoursLeft}h left)`
+          );
+        } catch (err) {
+          logger.warn(`Failed to send expiry notification to ${user.telegramId}`, err.message);
+        }
+      }
+
+      if (notified.length > 0) {
+        logger.success(
+          `📧 Sent ${notified.length} subscription expiry warnings`
+        );
+      }
+
+      return notified;
+    } catch (error) {
+      logger.error("Failed to check expiring subscriptions", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Reset notification flag for renewed subscriptions
+   */
+  static async resetExpiryNotifications() {
+    try {
+      const updated = await User.updateMany(
+        { subscriptionNotified: true, subscriptionActive: true },
+        { subscriptionNotified: false }
+      );
+
+      if (updated.modifiedCount > 0) {
+        logger.info(
+          `🔄 Reset notification flags for ${updated.modifiedCount} users`
+        );
+      }
+
+      return updated.modifiedCount;
+    } catch (error) {
+      logger.error("Failed to reset notification flags", error);
       throw error;
     }
   }

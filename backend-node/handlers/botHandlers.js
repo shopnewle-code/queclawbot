@@ -3,6 +3,7 @@ import { env } from "../config/env.js";
 import AIService from "../services/aiService.js";
 import PayPalService from "../services/paypalService.js";
 import SubscriptionService from "../services/subscriptionService.js";
+import AIUsageService from "../services/aiUsageService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -363,17 +364,17 @@ function handleAICommand(bot) {
         lastName: msg.from.last_name,
       });
 
-      // Check if user can use AI
-      const limit = user.plan === PLANS.PRO ? env.AI_USAGE_PRO_LIMIT : env.AI_USAGE_FREE_LIMIT;
+      // ===== Query Limit Check =====
+      const limitCheck = await AIUsageService.canPerformQuery(telegramId);
 
-      if (!user.hasUnlimitedAI() && user.aiUsage >= env.AI_USAGE_FREE_LIMIT) {
-        await bot.sendMessage(
-          msg.chat.id,
-          `⚠️ *Free Limit Reached*\n\n` +
-            `You've used all ${env.AI_USAGE_FREE_LIMIT} free queries this month.\n\n` +
-            `Subscribe to *Pro* for unlimited access!\n\n` +
-            `Just $4.99/month - Use /upgrade`,
-          { parse_mode: "Markdown" }
+      if (!limitCheck.allowed) {
+        const warningMsg = AIUsageService.getWarningMessage(limitCheck);
+        await bot.sendMessage(msg.chat.id, warningMsg, {
+          parse_mode: "HTML",
+          reply_to_message_id: msg.message_id,
+        });
+        logger.warn(
+          `❌ Query blocked for ${telegramId}: ${limitCheck.code} (${limitCheck.used}/${limitCheck.limit})`
         );
         return;
       }
@@ -396,11 +397,12 @@ function handleAICommand(bot) {
 
         const duration = Date.now() - startTime;
 
-        // Increment usage
-        await user.increaseUsage();
+        // Record query usage with new system
+        await AIUsageService.recordQuery(telegramId);
+        const summary = await AIUsageService.getUsageSummary(telegramId);
 
         logger.info(
-          `✅ AI request from ${telegramId} - Usage: ${user.aiUsage}/${limit} - Time: ${duration}ms`
+          `✅ AI query from ${telegramId} - Daily: ${summary.daily.used}/${summary.daily.limit}, Total: ${summary.totalQueries} - Time: ${duration}ms`
         );
 
         // Format response with markdown
