@@ -884,24 +884,24 @@ function handlePricingCommand(bot) {
 <code>┌─────────────────────────────────────┐
 │  PLAN    │  PRICE   │  QUERIES
 ├─────────────────────────────────────┤
-│  FREE    │  $0      │  20/day
-│  PRO     │  $4.99   │  500/day  
-│  PREMIUM │  $9.99   │  5000/day
+│  FREE    │  $0      │  5/day
+│  PRO     │  $4.99   │  90/day  
+│  PREMIUM │  $9.99   │  Unlimited
 └─────────────────────────────────────┘</code>
 
 <b>📊 Detailed Comparison:</b>
 
 🆓 <b>FREE PLAN</b>
-   • <b>20 queries/day</b>
+   • <b>5 queries/day</b>
    • <b>100 queries/month</b>
    • 5 queries/hour rate limit
    • Basic AI features
    • Good for testing
 
 💎 <b>PRO PLAN</b> - <b>$4.99/month</b>
-   • <b>500 queries/day</b>
-   • <b>5000 queries/month</b>
-   • 100 queries/hour rate limit
+   • <b>90 queries/day</b>
+   • <b>2500 queries/month</b>
+   • 50 queries/hour rate limit
    • Priority processing
    • Image generation
    • Web search enabled

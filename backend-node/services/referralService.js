@@ -90,18 +90,18 @@ export class ReferralService {
       referrer.referralCount = (referrer.referralCount || 0) + 1;
 
       // ===== Referral Rewards =====
-      // Reward: 7 days free pro for both users
+      // Reward milestones: 7 days at 1st friend, additional 7 days at 3rd friend
       if (referrer.referralCount === 1) {
-        // First referral bonus
+        // First referral: 7 days bonus
         referrer.referralReward = (referrer.referralReward || 0) + 7;
         logger.success(
-          `🎁 Referrer ${referrer.telegramId} earned 7 days bonus (1st referral)`
+          `🎁 Referrer ${referrer.telegramId} earned 7 days bonus (1 friend invited)`
         );
-      } else if (referrer.referralCount % 3 === 0) {
-        // Every 3 referrals
+      } else if (referrer.referralCount === 3) {
+        // Third referral: additional 7 days bonus (total 14 days)
         referrer.referralReward = (referrer.referralReward || 0) + 7;
         logger.success(
-          `🎁 Referrer ${referrer.telegramId} earned 7 days bonus (${referrer.referralCount} referrals)`
+          `🎁 Referrer ${referrer.telegramId} earned 7 days bonus (3 friends invited - total 14 days)`
         );
       }
 

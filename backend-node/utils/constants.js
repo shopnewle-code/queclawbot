@@ -6,6 +6,7 @@
 export const PLANS = {
   FREE: "free",
   PRO: "pro",
+  PREMIUM: "premium",
 };
 
 export const TELEGRAM_MESSAGES = {

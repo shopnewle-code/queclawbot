@@ -13,14 +13,19 @@ export class AIUsageService {
    */
   static LIMITS = {
     FREE: {
-      queriesPerDay: 20,
+      queriesPerDay: 5,
       queriesPerMonth: 100,
       queriesPerHour: 5,
     },
     PRO: {
-      queriesPerDay: 500,
+      queriesPerDay: 90,
+      queriesPerMonth: 2500,
+      queriesPerHour: 50,
+    },
+    PREMIUM: {
+      queriesPerDay: 999999,
       queriesPerMonth: 5000,
-      queriesPerHour: 100,
+      queriesPerHour: 999999,
     },
   };
 
@@ -39,7 +44,7 @@ export class AIUsageService {
         };
       }
 
-      const limits = user.plan === "pro" ? this.LIMITS.PRO : this.LIMITS.FREE;
+      const limits = user.plan === "premium" ? this.LIMITS.PREMIUM : (user.plan === "pro" ? this.LIMITS.PRO : this.LIMITS.FREE);
       const now = new Date();
 
       // ===== Daily Limit Check =====
@@ -151,7 +156,7 @@ export class AIUsageService {
         return null;
       }
 
-      const limits = user.plan === "pro" ? this.LIMITS.PRO : this.LIMITS.FREE;
+      const limits = user.plan === "premium" ? this.LIMITS.PREMIUM : (user.plan === "pro" ? this.LIMITS.PRO : this.LIMITS.FREE);
 
       return {
         plan: user.plan,
@@ -230,7 +235,7 @@ export class AIUsageService {
           `⚠️ <b>Daily Limit Reached</b>\n\n` +
           `You've used <b>${checkResult.used}/${checkResult.limit}</b> queries today.\n` +
           `Reset in: <b>${remainingMinutes} minutes</b>\n\n` +
-          `Upgrade to <b>Pro</b> for <b>500 queries/day</b> - Use /upgrade`
+          `Upgrade to <b>Pro</b> for <b>90 queries/day</b> - Use /upgrade`
         );
 
       case "HOURLY_LIMIT":
@@ -238,7 +243,7 @@ export class AIUsageService {
           `⚠️ <b>Hourly Rate Limit</b>\n\n` +
           `You've used <b>${checkResult.used}/${checkResult.limit}</b> queries this hour.\n` +
           `Please wait <b>${remainingMinutes} minutes</b> before the next query.\n\n` +
-          `Upgrade to <b>Pro</b> for <b>100 queries/hour</b> - Use /upgrade`
+          `Upgrade to <b>Pro</b> for <b>50 queries/hour</b> - Use /upgrade`
         );
 
       case "MONTHLY_LIMIT":
@@ -246,7 +251,7 @@ export class AIUsageService {
           `⚠️ <b>Monthly Limit Reached</b>\n\n` +
           `You've used <b>${checkResult.used}/${checkResult.limit}</b> queries this month.\n` +
           `Reset in: <b>${remainingMinutes} minutes</b>\n\n` +
-          `Upgrade to <b>Pro</b> for <b>5000 queries/month</b> - Use /upgrade`
+          `Upgrade to <b>Pro</b> for <b>2500 queries/month</b> - Use /upgrade`
         );
 
       default:

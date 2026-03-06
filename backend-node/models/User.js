@@ -32,7 +32,7 @@ const userSchema = new mongoose.Schema(
     // Plan and Usage
     plan: {
       type: String,
-      enum: [PLANS.FREE, PLANS.PRO],
+      enum: [PLANS.FREE, PLANS.PRO, PLANS.PREMIUM],
       default: PLANS.FREE,
       index: true,
     },
