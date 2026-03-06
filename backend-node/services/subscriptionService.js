@@ -217,6 +217,9 @@ export class SubscriptionService {
   }
 
   /**
+   * Get user statistics
+   */
+  static async getStats() {
     try {
       const totalUsers = await User.countDocuments();
       const activeSubscriptions = await User.countDocuments({
