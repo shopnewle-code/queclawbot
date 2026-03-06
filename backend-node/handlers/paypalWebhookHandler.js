@@ -136,6 +136,7 @@ async function handleSubscriptionCancelled(event, bot) {
           );
         } catch (err) {
           logger.warn(`Failed to send cancellation message to ${user.telegramId}`);
+        }
       }
     }
   } catch (error) {
