@@ -37,7 +37,8 @@ export class SubscriptionService {
   static async activateSubscription(
     telegramId,
     subscriptionId,
-    durationMonths = SUBSCRIPTION_DURATION_MONTHS
+    durationMonths = SUBSCRIPTION_DURATION_MONTHS,
+    plan = PLANS.PRO
   ) {
     try {
       logger.info(`Looking up user: ${telegramId}`);
@@ -56,12 +57,12 @@ export class SubscriptionService {
       user.subscriptionActive = true;
       user.subscriptionId = subscriptionId;
       user.subscriptionExpire = expire;
-      user.plan = PLANS.PRO;
+      user.plan = plan;
       user.aiUsage = 0;
       user.lastUsageReset = new Date();
 
       const saved = await user.save();
-      logger.success(`Subscription activated and saved for ${telegramId}`);
+      logger.success(`Subscription activated and saved for ${telegramId} with plan: ${plan}`);
       return saved;
     } catch (error) {
       logger.error(`Failed to activate subscription for ${telegramId}`, error);

@@ -298,9 +298,137 @@ router.post("/debug-activate/:telegramId", async (req, res) => {
 });
 
 /**
- * POST /api/paypal/cancel/:id
- * Cancel a subscription
+ * POST /api/paypal/test-webhook/:subscriptionId
+ * Test webhook activation flow with full logging
  */
+router.post("/test-webhook/:subscriptionId", async (req, res) => {
+  try {
+    const subscriptionId = req.params.subscriptionId;
+    const planParam = req.query.plan || "pro"; // Allow plan override via query param
+
+    logger.warn(`🧪 TEST WEBHOOK: Simulating BILLING.SUBSCRIPTION.ACTIVATED for ${subscriptionId}`);
+
+    // Step 1: Fetch subscription details from PayPal
+    logger.info(`[1/4] Fetching subscription details from PayPal...`);
+    let telegramId = null;
+    
+    try {
+      const paypalService = new PayPalService();
+      const subscriptionDetails = await paypalService.getSubscriptionDetails(subscriptionId);
+      
+      logger.info(`[1/4] PayPal Details:`, JSON.stringify(subscriptionDetails, null, 2));
+      telegramId = subscriptionDetails.custom_id;
+      
+      if (!telegramId) {
+        return res.status(400).json({
+          success: false,
+          error: "custom_id not found in PayPal subscription",
+          details: subscriptionDetails,
+        });
+      }
+      
+      logger.success(`[1/4] Extracted telegramId: ${telegramId}`);
+    } catch (err) {
+      logger.error(`[1/4] Failed to fetch from PayPal:`, err.message);
+      return res.status(500).json({
+        success: false,
+        error: "Failed to fetch subscription from PayPal",
+        message: err.message,
+      });
+    }
+
+    // Step 2: Activate subscription in database
+    logger.info(`[2/4] Activating subscription in database...`);
+    const { PLANS } = await import("../utils/constants.js");
+    const plan = planParam === "premium" ? PLANS.PREMIUM : PLANS.PRO;
+
+    const activated = await SubscriptionService.activateSubscription(
+      telegramId,
+      subscriptionId,
+      1,
+      plan
+    );
+
+    if (!activated) {
+      return res.status(500).json({
+        success: false,
+        error: "Failed to activate subscription",
+      });
+    }
+
+    logger.success(`[2/4] Subscription activated in database`);
+
+    // Step 3: Verify in MongoDB
+    logger.info(`[3/4] Verifying in MongoDB...`);
+    const { User } = await import("../models/User.js");
+    const verifyUser = await User.findOne({ telegramId });
+
+    if (!verifyUser) {
+      return res.status(500).json({
+        success: false,
+        error: "User not found after activation",
+      });
+    }
+
+    logger.info(`[3/4] Verification Results:`);
+    logger.info(`  subscriptionActive: ${verifyUser.subscriptionActive}`);
+    logger.info(`  subscriptionId: ${verifyUser.subscriptionId}`);
+    logger.info(`  plan: ${verifyUser.plan}`);
+    logger.info(`  subscriptionExpire: ${verifyUser.subscriptionExpire}`);
+    logger.info(`  updatedAt: ${verifyUser.updatedAt}`);
+
+    if (!verifyUser.subscriptionActive) {
+      logger.error(`[3/4] ❌ VERIFICATION FAILED: subscriptionActive is false!`);
+      return res.status(500).json({
+        success: false,
+        error: "Subscription not marked as active in database",
+        userState: {
+          subscriptionActive: verifyUser.subscriptionActive,
+          subscriptionId: verifyUser.subscriptionId,
+          plan: verifyUser.plan,
+        },
+      });
+    }
+
+    logger.success(`[3/4] ✅ Verification PASSED`);
+
+    // Step 4: Send bot notification
+    logger.info(`[4/4] Sending bot notification...`);
+    try {
+      // Note: This requires the bot instance exported from server.js
+      // For testing, we'll just log it
+      logger.success(`[4/4] Would send activation message to user ${telegramId}`);
+    } catch (err) {
+      logger.warn(`[4/4] Failed to send bot message:`, err.message);
+      // Don't fail the webhook for this
+    }
+
+    logger.success(`✅✅✅ WEBHOOK TEST COMPLETED SUCCESSFULLY`);
+
+    res.json({
+      success: true,
+      message: "Webhook test completed successfully",
+      telegramId,
+      subscriptionId,
+      plan,
+      userState: {
+        subscriptionActive: verifyUser.subscriptionActive,
+        subscriptionId: verifyUser.subscriptionId,
+        plan: verifyUser.plan,
+        subscriptionExpire: verifyUser.subscriptionExpire,
+        updatedAt: verifyUser.updatedAt,
+      },
+    });
+  } catch (error) {
+    logger.error("Test webhook failed", error);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      stack: process.env.NODE_ENV === "development" ? error.stack : undefined,
+    });
+  }
+});
+
 router.post("/cancel/:id", async (req, res) => {
   try {
     await PayPalService.cancelSubscription(req.params.id);

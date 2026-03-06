@@ -1,6 +1,7 @@
 import { PAYPAL_EVENTS } from "../utils/constants.js";
 import { User } from "../models/User.js";
 import SubscriptionService from "../services/subscriptionService.js";
+import { PayPalService } from "../services/paypalService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -51,24 +52,39 @@ async function handleSubscriptionActivation(event, bot) {
 
     logger.info(`🎯 Processing subscription activation...`);
     logger.info(`  Subscription ID: ${subscriptionId}`);
-    logger.info(`  Telegram ID: ${telegramId}`);
+    logger.info(`  Telegram ID from event: ${telegramId}`);
 
-    // Validation: check if telegramId exists
+    // ===== CRITICAL FIX: Fetch subscription details from PayPal if custom_id missing =====
     if (!telegramId) {
-      logger.warn(`⚠️ No custom_id in webhook event. Subscription ID: ${subscriptionId}`);
+      logger.warn(`⚠️ custom_id NOT in webhook event. Fetching from PayPal API...`);
       
-      // Try to find user by subscription ID
-      const user = await User.findOne({ subscriptionId });
-      if (user) {
-        telegramId = user.telegramId;
-        logger.info(`✅ Found user by subscriptionId: ${telegramId}`);
-      } else {
-        logger.error(`❌ Could not find telegram ID for subscription ${subscriptionId}`);
-        return;
+      try {
+        const paypalService = new PayPalService();
+        const subscriptionDetails = await paypalService.getSubscriptionDetails(subscriptionId);
+        
+        telegramId = subscriptionDetails.custom_id;
+        logger.info(`✅ Fetched custom_id from PayPal API: ${telegramId}`);
+        
+        if (!telegramId) {
+          logger.error(`❌ custom_id still missing after PayPal API call for subscription ${subscriptionId}`);
+          return;
+        }
+      } catch (apiError) {
+        logger.warn(`⚠️ Failed to fetch from PayPal API: ${apiError.message}`);
+        
+        // Fallback: Try to find user by subscription ID
+        const user = await User.findOne({ subscriptionId });
+        if (user) {
+          telegramId = user.telegramId;
+          logger.info(`✅ Found user by subscriptionId: ${telegramId}`);
+        } else {
+          logger.error(`❌ Could not find telegram ID for subscription ${subscriptionId}`);
+          return;
+        }
       }
     }
 
-    logger.info(`📝 Calling activateSubscription for ${telegramId}`);
+    logger.info(`📝 Calling activateSubscription for ${telegramId} with subscription ${subscriptionId}`);
     const user = await SubscriptionService.activateSubscription(
       telegramId,
       subscriptionId
@@ -83,11 +99,19 @@ async function handleSubscriptionActivation(event, bot) {
     logger.info(`  subscriptionActive: ${user.subscriptionActive}`);
     logger.info(`  plan: ${user.plan}`);
     logger.info(`  subscriptionExpire: ${user.subscriptionExpire}`);
+    logger.info(`  updatedAt: ${user.updatedAt}`);
 
     if (user.subscriptionActive) {
       logger.success(
         `✅✅✅ User ${telegramId} subscription ACTIVATED! Status: ${user.subscriptionActive}, Plan: ${user.plan}, Expires: ${user.subscriptionExpire}`
       );
+
+      // Determine plan message based on user.plan
+      const planMessage = user.plan === "premium" 
+        ? "🚀 PREMIUM Unlimited" 
+        : user.plan === "pro" 
+        ? "💎 PRO 90 queries/day" 
+        : "🆓 FREE";
 
       try {
         await bot.sendMessage(
@@ -95,7 +119,7 @@ async function handleSubscriptionActivation(event, bot) {
           "🎉 <b>Subscription Activated!</b>\n\n" +
             "✨ <b>Unlimited AI unlocked!</b>\n" +
             "You now have access to all premium features.\n" +
-            "📊 Plan: 🌟 PRO\n" +
+            `📊 Plan: ${planMessage}\n` +
             "⏱️ Expires: " + (user.subscriptionExpire?.toLocaleDateString() || "N/A") + "\n\n" +
             "Use /verify to confirm or /ai to start asking questions!",
           { parse_mode: "HTML" }
@@ -112,6 +136,9 @@ async function handleSubscriptionActivation(event, bot) {
       );
       logger.error(
         `  subscriptionActive: ${user?.subscriptionActive}`
+      );
+      logger.error(
+        `  MongoDB updated: Check if user.updatedAt is recent`
       );
     }
   } catch (error) {
@@ -157,26 +184,52 @@ async function handleSubscriptionCancelled(event, bot) {
   try {
     const subscriptionId = event.resource.id;
 
+    logger.info(`❌ Processing cancellation for subscription: ${subscriptionId}`);
+
     // Find user by subscription ID first
-    const user = await User.findOne({ subscriptionId });
+    let user = await User.findOne({ subscriptionId });
+
+    // If not found by subscription ID, try to fetch from PayPal API
+    if (!user) {
+      logger.warn(`⚠️ User not found by subscriptionId. Fetching from PayPal API...`);
+      
+      try {
+        const paypalService = new PayPalService();
+        const subscriptionDetails = await paypalService.getSubscriptionDetails(subscriptionId);
+        
+        const telegramId = subscriptionDetails.custom_id;
+        if (telegramId) {
+          user = await User.findOne({ telegramId });
+          logger.info(`✅ Found user via PayPal API custom_id: ${telegramId}`);
+        }
+      } catch (apiError) {
+        logger.warn(`⚠️ Failed to fetch from PayPal API: ${apiError.message}`);
+      }
+    }
 
     if (user) {
       // Now cancel using the telegramId
       const cancelled = await SubscriptionService.cancelSubscription(user.telegramId);
 
       if (cancelled) {
+        logger.success(`✅ Subscription cancelled for user ${user.telegramId}`);
+        
         try {
           await bot.sendMessage(
             user.telegramId,
-            "⚠️ Subscription Cancelled\n\n" +
+            "⚠️ <b>Subscription Cancelled</b>\n\n" +
               "Your premium subscription has been cancelled.\n" +
-              "You now have access to the free tier only (5 queries/month).\n\n" +
-              "Use /upgrade to resubscribe anytime!"
+              "You now have access to the free tier only.\n\n" +
+              "Free Plan: 5 queries/day\n\n" +
+              "Use /upgrade to resubscribe anytime!",
+            { parse_mode: "HTML" }
           );
         } catch (err) {
           logger.warn(`Failed to send cancellation message to ${user.telegramId}`);
         }
       }
+    } else {
+      logger.warn(`⚠️ User not found for cancelled subscription ${subscriptionId}`);
     }
   } catch (error) {
     logger.error("Failed to handle subscription cancellation", error);
