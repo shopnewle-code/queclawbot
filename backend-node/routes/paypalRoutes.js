@@ -129,6 +129,42 @@ router.get("/subscription/:id", async (req, res) => {
 });
 
 /**
+ * GET /api/paypal/verify/:telegramId
+ * Verify user subscription status
+ */
+router.get("/verify/:telegramId", async (req, res) => {
+  try {
+    const { User } = await import("../models/User.js");
+    const user = await User.findOne({ telegramId: req.params.telegramId });
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        error: "User not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        telegramId: user.telegramId,
+        subscriptionActive: user.subscriptionActive,
+        subscriptionId: user.subscriptionId,
+        subscriptionExpire: user.subscriptionExpire,
+        plan: user.plan,
+        aiUsage: user.aiUsage,
+      },
+    });
+  } catch (error) {
+    logger.error("Failed to verify subscription", error);
+    res.status(500).json({
+      success: false,
+      error: "Failed to verify subscription",
+    });
+  }
+});
+
+/**
  * POST /api/paypal/cancel/:id
  * Cancel a subscription
  */

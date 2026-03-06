@@ -29,6 +29,9 @@ export function registerBotHandlers(bot) {
   // /profile command
   bot.onText(BOT_REGEX.PROFILE, handleProfileCommand(bot));
 
+  // /verify command (check subscription status after payment)
+  bot.onText(/\/verify/, handleVerifyCommand(bot));
+
   // /imagine <prompt> command (Pro only - image generation)
   bot.onText(/\/imagine\s+(.+)/, handleImagineCommand(bot));
 
@@ -275,6 +278,10 @@ Example: /ai What is blockchain?
 Subscribe to Pro unlimited
 Only $4.99/month
 
+✅ /verify
+Check your subscription status
+After payment, use to verify activation
+
 👤 /profile
 View your account & usage
 
@@ -305,7 +312,8 @@ Show this message
 1. Start with /ai to test AI
 2. Use /profile to check usage
 3. /upgrade for unlimited access
-4. /imagine & /search for Pro users
+4. After payment, use /verify to check status
+5. /imagine & /search for Pro users
 
 Questions? Ask me anything! 🤖
     `;
@@ -467,12 +475,15 @@ function handleUpgradeCommand(bot) {
         msg.chat.id,
         TELEGRAM_MESSAGES.UPGRADE_PROMPT +
           "\n\n" +
-          "💰 *Plans:*\n" +
+          "💰 <b>Plans:</b>\n" +
           "• Free: 5 queries/month\n" +
-          "• Pro: Unlimited queries - $4.99/month",
+          "• Pro: Unlimited queries - $4.99/month\n\n" +
+          "📝 <b>After Payment:</b>\n" +
+          "Click the PayPal button below to complete payment.\n" +
+          "After successful payment, use <code>/verify</code> to check if your subscription is active!",
         {
           reply_markup: keyboard,
-          parse_mode: "Markdown",
+          parse_mode: "HTML",
         }
       );
 
@@ -747,6 +758,57 @@ Share QueClaw with your friends and earn rewards!
     } catch (error) {
       logger.error("Refer command error", error);
       await bot.sendMessage(msg.chat.id, "❌ Failed to load referral program");
+    }
+  };
+}
+
+/**
+ * Handle /verify command (check subscription status after payment)
+ */
+function handleVerifyCommand(bot) {
+  return async (msg) => {
+    try {
+      const telegramId = msg.from.id.toString();
+
+      // Verify subscription status
+      const user = await SubscriptionService.findOrCreateUser(telegramId);
+
+      const subscriptionStatus = user.subscriptionActive
+        ? `✅ Active (expires ${user.subscriptionExpire?.toLocaleDateString() || "N/A"})`
+        : "❌ Inactive";
+
+      const verifyText = `
+<b>✅ Subscription Status Verified</b>
+
+<b>Your Account:</b>
+💎 Plan: ${user.plan === PLANS.PRO ? "🌟 PRO" : "🆓 FREE"}
+Status: ${subscriptionStatus}
+📊 AI Usage: ${user.aiUsage}
+
+${
+  user.subscriptionActive
+    ? "<b>✨ Your subscription is active!</b>\nYou can now use all PRO features.\n\nUse /ai &lt;prompt&gt; to ask questions!"
+    : '<b>⏳ Waiting for activation...</b>\n\nIf you recently completed payment, it may take 1-2 minutes to activate.\n\nUse /upgrade to subscribe or contact support.'
+}
+      `;
+
+      await bot.sendMessage(msg.chat.id, verifyText, {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [{ text: "👤 View Profile", callback_data: "profile" }],
+            [
+              { text: user.subscriptionActive ? "🔄 Renew" : "💎 Upgrade", callback_data: "upgrade" },
+              { text: "❓ Help", callback_data: "help" },
+            ],
+          ],
+        },
+      });
+
+      logger.info(`Verify command used by ${telegramId}`);
+    } catch (error) {
+      logger.error("Verify command error", error);
+      await bot.sendMessage(msg.chat.id, "❌ Failed to verify subscription");
     }
   };
 }
