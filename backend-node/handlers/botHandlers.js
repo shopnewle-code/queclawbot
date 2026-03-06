@@ -77,7 +77,7 @@ function handleCallbackQuery(bot) {
       if (data === "help") {
         const helpCmd = handleHelpCommand(bot);
         await helpCmd({ chat: message.chat, from });
-      } else if (data === "upgrade" || data === "upgrade_pro") {
+      } else if (data === "upgrade") {
         const upgradeCmd = handleUpgradeCommand(bot);
         await upgradeCmd({ chat: message.chat, from });
       } else if (data === "profile") {
@@ -112,7 +112,11 @@ function handleCallbackQuery(bot) {
           showAlert = true;
         }
       } else if (data === "view_plans") {
-        responseText = "🆓 Free: 5 queries/month\n💎 Pro: Unlimited - $4.99/month";
+        responseText = 
+          "💰 <b>QueClaw Plans</b>\n\n" +
+          "🆓 <b>FREE</b>\n• 5 queries/day\n• 100 queries/month\n• Basic AI\n\n" +
+          "💎 <b>PRO - $4.99/month</b>\n• 90 queries/day\n• 2500 queries/month\n• Image generation\n• Web search\n\n" +
+          "🚀 <b>PREMIUM - $9.99/month</b>\n• Unlimited daily\n• 5000 queries/month\n• Priority support\n• All features";
         showAlert = true;
       } else if (data === "view_stats") {
         try {
@@ -146,6 +150,208 @@ function handleCallbackQuery(bot) {
           return;
         } catch (err) {
           responseText = "Failed to create payment link";
+          showAlert = true;
+        }
+      } else if (data === "upgrade_pro") {
+        // Show PRO plan details with upgrade button
+        await bot.editMessageText(
+          `<b>💎 PRO Plan</b> - <b>$4.99/month</b>\n\n` +
+          `✨ <b>Features:</b>\n` +
+          `• 90 queries/day\n` +
+          `• 2,500 queries/month\n` +
+          `• 50 queries/hour rate limit\n` +
+          `• Image generation\n` +
+          `• Web search enabled\n` +
+          `• Priority processing\n` +
+          `• Can earn via referrals\n\n` +
+          `Perfect for power users who need high quotas!\n\n` +
+          `Click the button below to proceed with PayPal payment.`,
+          {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "💳 Pay Now - $4.99",
+                    callback_data: "checkout_pro",
+                  },
+                ],
+                [
+                  {
+                    text: "🚀 View PREMIUM Plan",
+                    callback_data: "upgrade_premium",
+                  },
+                ],
+                [
+                  {
+                    text: "⬅️ Back to Plans",
+                    callback_data: "show_upgrade_menu",
+                  },
+                ],
+              ],
+            },
+          }
+        );
+        return;
+      } else if (data === "upgrade_premium") {
+        // Show PREMIUM plan details with upgrade button
+        await bot.editMessageText(
+          `<b>🚀 PREMIUM Plan</b> - <b>$9.99/month</b>\n\n` +
+          `✨ <b>Features:</b>\n` +
+          `• Unlimited daily queries\n` +
+          `• 5,000 queries/month limit\n` +
+          `• Unlimited hourly rate limit\n` +
+          `• Image generation\n` +
+          `• Web search enabled\n` +
+          `• Priority support\n` +
+          `• All features unlocked\n` +
+          `• Custom integrations\n\n` +
+          `Perfect for professional users and teams!\n\n` +
+          `Click the button below to proceed with PayPal payment.`,
+          {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "💳 Pay Now - $9.99",
+                    callback_data: "checkout_premium",
+                  },
+                ],
+                [
+                  {
+                    text: "💎 View PRO Plan",
+                    callback_data: "upgrade_pro",
+                  },
+                ],
+                [
+                  {
+                    text: "⬅️ Back to Plans",
+                    callback_data: "show_upgrade_menu",
+                  },
+                ],
+              ],
+            },
+          }
+        );
+        return;
+      } else if (data === "show_upgrade_menu") {
+        // Show main upgrade menu with plan selection
+        await bot.editMessageText(
+          `<b>💰 QueClaw Plans</b>\n\n` +
+          `Select a plan to upgrade:\n\n` +
+          `🆓 <b>FREE (Current)</b>\n• 5 queries/day\n• 100 queries/month\n\n` +
+          `💎 <b>PRO</b> - <b>$4.99/month</b>\n• 90 queries/day • 2,500 queries/month\n\n` +
+          `🚀 <b>PREMIUM</b> - <b>$9.99/month</b>\n• Unlimited daily • 5,000 queries/month`,
+          {
+            chat_id: message.chat.id,
+            message_id: message.message_id,
+            parse_mode: "HTML",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "💎 Upgrade to PRO",
+                    callback_data: "upgrade_pro",
+                  },
+                ],
+                [
+                  {
+                    text: "🚀 Upgrade to PREMIUM",
+                    callback_data: "upgrade_premium",
+                  },
+                ],
+                [
+                  {
+                    text: "❓ FAQ",
+                    callback_data: "show_faq",
+                  },
+                ],
+              ],
+            },
+          }
+        );
+        return;
+      } else if (data === "checkout_pro") {
+        // Create subscription for PRO plan
+        try {
+          const telegramId = from.id.toString();
+          const { approvalUrl } = await PayPalService.createSubscription(telegramId, env.PAYPAL_PLAN_ID);
+          await bot.editMessageText(
+            `<b>✅ PRO Plan Selected</b>\n\n` +
+            `Price: <b>$4.99/month</b>\n\n` +
+            `Click the button below to complete payment via PayPal.\n` +
+            `After payment, use /verify to confirm your subscription!`,
+            {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+              parse_mode: "HTML",
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "💳 Pay via PayPal",
+                      url: approvalUrl,
+                    },
+                  ],
+                  [
+                    {
+                      text: "⬅️ Change Plan",
+                      callback_data: "show_upgrade_menu",
+                    },
+                  ],
+                ],
+              },
+            }
+          );
+          responseText = "Opening PayPal checkout...";
+          showAlert = false;
+        } catch (err) {
+          logger.error("Failed to create PRO subscription", err);
+          responseText = "Failed to initialize payment. Try again.";
+          showAlert = true;
+        }
+      } else if (data === "checkout_premium") {
+        // Create subscription for PREMIUM plan (use same plan ID, premium tracking added in webhook)
+        try {
+          const telegramId = from.id.toString();
+          const { approvalUrl } = await PayPalService.createSubscription(telegramId, env.PAYPAL_PLAN_ID);
+          await bot.editMessageText(
+            `<b>✅ PREMIUM Plan Selected</b>\n\n` +
+            `Price: <b>$9.99/month</b>\n\n` +
+            `Click the button below to complete payment via PayPal.\n` +
+            `After payment, use /verify to confirm your subscription!`,
+            {
+              chat_id: message.chat.id,
+              message_id: message.message_id,
+              parse_mode: "HTML",
+              reply_markup: {
+                inline_keyboard: [
+                  [
+                    {
+                      text: "💳 Pay via PayPal",
+                      url: approvalUrl,
+                    },
+                  ],
+                  [
+                    {
+                      text: "⬅️ Change Plan",
+                      callback_data: "show_upgrade_menu",
+                    },
+                  ],
+                ],
+              },
+            }
+          );
+          responseText = "Opening PayPal checkout...";
+          showAlert = false;
+        } catch (err) {
+          logger.error("Failed to create PREMIUM subscription", err);
+          responseText = "Failed to initialize payment. Try again.";
           showAlert = true;
         }
       } else if (data === "show_faq") {
@@ -269,13 +475,17 @@ I'm your personal AI assistant powered by advanced language models.
 <b>🎯 Quick Start:</b>
 • Use /ai to ask any question
 • Use /help for all commands
-• Use /upgrade for unlimited access
+• Use /upgrade to unlock more features
 
 <b>💡 Get Started:</b>
 Try: /ai How does machine learning work?
 
-<b>🌟 Premium Features:</b>
-Upgrade to Pro for image generation, web search, and unlimited queries - just <b>$4.99/month</b>!
+<b>💎 Upgrade Options:</b>
+🆓 <b>Free:</b> 5 queries/day
+💎 <b>Pro:</b> 90 queries/day + image generation - <b>$4.99/month</b>
+🚀 <b>Premium:</b> Unlimited daily + priority support - <b>$9.99/month</b>
+
+Start with /upgrade to see all features and pricing!
       `;
 
       await bot.sendMessage(msg.chat.id, welcomeText, {
@@ -284,7 +494,7 @@ Upgrade to Pro for image generation, web search, and unlimited queries - just <b
           inline_keyboard: [
             [
               { text: "❓ Help", callback_data: "help" },
-              { text: "💎 Upgrade", callback_data: "upgrade_pro" },
+              { text: "💎 Upgrade", callback_data: "show_upgrade_menu" },
             ],
             [
               { text: "👤 Profile", callback_data: "profile" },
@@ -316,45 +526,48 @@ Ask AI any question
 Example: /ai What is blockchain?
 
 💎 /upgrade
-Subscribe to Pro unlimited
-Only $4.99/month
+View pricing & upgrade to PRO or PREMIUM
+$4.99-$9.99/month
 
 ✅ /verify
 Check your subscription status
 After payment, use to verify activation
 
 👤 /profile
-View your account & usage
+View your account & usage stats
 
 🎁 /refer
-Invite friends & earn rewards
+Invite friends & earn free days
 
-*🌟 Pro Features (Upgrade):*
+*🌟 Premium Features (Upgrade):*
 
 /imagine <description>
-Generate AI images
-Example: /imagine sunset over mountains
+Generate AI images (image generation)
 
 🔍 /search <query>
 Search the web for info
-Example: /search latest AI news
 
 📊 /stats
-View bot statistics (admin)
+View bot statistics (admin only)
 
 🆘 /help
 Show this message
 
-*💎 Plans:*
-🆓 *Free:* 5 queries/month
-🌟 *Pro:* Unlimited - $4.99/month
+*💎 Plans & Pricing:*
+🆓 *Free:* 5 queries/day, 100/month - FREE
+💎 *Pro:* 90 queries/day, 2500/month - $4.99/month
+🚀 *Premium:* Unlimited daily, 5000/month - $9.99/month
 
-*🚀 Quick Tips:*
-1. Start with /ai to test AI
-2. Use /profile to check usage
-3. /upgrade for unlimited access
-4. After payment, use /verify to check status
-5. /imagine & /search for Pro users
+*🎁 Referral Bonuses:*
+• Invite 1 friend → 7 days free Pro
+• Invite 3 friends → 14 days total free Pro
+
+*🚀 Quick Start:*
+1. Use /ai "What is AI?" to test
+2. Check /profile to see usage
+3. /upgrade for more queries
+4. After payment, /verify to activate
+5. /imagine for image generation
 
 Questions? Ask me anything! 🤖
     `;
@@ -492,42 +705,72 @@ function handleUpgradeCommand(bot) {
   return async (msg) => {
     try {
       const telegramId = msg.from.id.toString();
+      const user = await SubscriptionService.findOrCreateUser(telegramId);
 
-      // Create PayPal subscription
-      const { approvalUrl } = await PayPalService.createSubscription(telegramId);
+      const upgradeText = `
+<b>💰 QueClaw Pricing Plans</b>
 
-      const keyboard = {
-        inline_keyboard: [
-          [
-            {
-              text: TELEGRAM_MESSAGES.SUBSCRIBE_BTN,
-              url: approvalUrl,
-            },
+Select the plan that works best for you:
+
+<b>🆓 FREE (Current ${user.plan === "free" ? "✓" : ""})</b>
+• 5 queries/day
+• 100 queries/month
+• Basic AI features
+No credit card needed!
+
+<b>💎 PRO</b> - <b>$4.99/month</b>
+• 90 queries/day
+• 2,500 queries/month
+• 50 queries/hour rate limit
+• Image generation
+• Web search enabled
+• Priority processing
+Perfect for enthusiasts!
+
+<b>🚀 PREMIUM</b> - <b>$9.99/month</b>
+• Unlimited daily queries
+• 5,000 queries/month
+• Unlimited hourly rate limit
+• All features unlocked
+• Priority support
+• Custom integrations
+For power users!`;
+
+      await bot.sendMessage(msg.chat.id, upgradeText, {
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "💎 Upgrade to PRO - $4.99",
+                callback_data: "upgrade_pro",
+              },
+            ],
+            [
+              {
+                text: "🚀 Upgrade to PREMIUM - $9.99",
+                callback_data: "upgrade_premium",
+              },
+            ],
+            [
+              {
+                text: "📋 Detailed Comparison",
+                callback_data: "view_plans",
+              },
+            ],
+            [
+              {
+                text: "❓ Help",
+                callback_data: "help",
+              },
+              {
+                text: "🎁 Refer Friends",
+                callback_data: "referral_stats",
+              },
+            ],
           ],
-          [
-            {
-              text: "ℹ️ View Plans",
-              callback_data: "view_plans",
-            },
-          ],
-        ],
-      };
-
-      await bot.sendMessage(
-        msg.chat.id,
-        TELEGRAM_MESSAGES.UPGRADE_PROMPT +
-          "\n\n" +
-          "💰 <b>Plans:</b>\n" +
-          "• Free: 5 queries/month\n" +
-          "• Pro: Unlimited queries - $4.99/month\n\n" +
-          "📝 <b>After Payment:</b>\n" +
-          "Click the PayPal button below to complete payment.\n" +
-          "After successful payment, use <code>/verify</code> to check if your subscription is active!",
-        {
-          reply_markup: keyboard,
-          parse_mode: "HTML",
-        }
-      );
+        },
+      });
 
       logger.info(`Upgrade command used by ${telegramId}`);
     } catch (error) {
@@ -590,8 +833,19 @@ function handleProfileCommand(bot) {
         ? `✅ Active (expires ${user.subscriptionExpire?.toLocaleDateString() || "N/A"})`
         : "❌ Inactive";
 
+      // Determine plan display
+      let planDisplay = "🆓 FREE";
+      let queryLimit = "5/day, 100/month";
+      if (user.plan === PLANS.PRO) {
+        planDisplay = "💎 PRO";
+        queryLimit = "90/day, 2500/month";
+      } else if (user.plan === PLANS.PREMIUM) {
+        planDisplay = "🚀 PREMIUM";
+        queryLimit = "Unlimited daily, 5000/month";
+      }
+
       const usagePercentage = Math.min(
-        Math.round((user.aiUsage / env.AI_USAGE_FREE_LIMIT) * 100),
+        Math.round((user.aiUsage / 100) * 100),
         100
       );
 
@@ -603,12 +857,12 @@ Name: ${msg.from.first_name || "User"} ${msg.from.last_name || ""}
 Username: @${msg.from.username || "N/A"}
 
 <b>Subscription:</b>
-💎 Plan: ${user.plan === PLANS.PRO ? "🌟 PRO" : "🆓 FREE"}
+💎 Plan: ${planDisplay}
 Status: ${subscriptionStatus}
 
 <b>Usage:</b>
-📊 AI Queries: ${user.aiUsage}/${user.plan === PLANS.PRO ? "Unlimited ∞" : env.AI_USAGE_FREE_LIMIT}
-📈 Usage: ${usagePercentage}%
+📊 AI Queries: ${user.aiUsage} queries used
+📈 Monthly Limit: ${queryLimit}
 
 <b>Account:</b>
 📅 Joined: ${user.createdAt?.toLocaleDateString()}
@@ -618,7 +872,7 @@ Status: ${subscriptionStatus}
       const keyboard = {
         inline_keyboard: [
           [
-            { text: user.plan === PLANS.PRO ? "🔄 Renew" : "💎 Upgrade", callback_data: "upgrade" },
+            { text: user.subscriptionActive ? "🔄 Renew" : "💎 Upgrade", callback_data: "show_upgrade_menu" },
             { text: "❓ Help", callback_data: "help" },
           ],
         ],
@@ -920,7 +1174,13 @@ function handlePricingCommand(bot) {
    ✅ Unlimited earning potential!
 
 <b>Your Current Plan:</b>
-   💎 Plan: <b>${user.plan === "pro" ? "🌟 PRO" : "🆓 FREE"}</b>
+   💎 Plan: <b>${
+     user.plan === "premium"
+       ? "🚀 PREMIUM"
+       : user.plan === "pro"
+       ? "💎 PRO"
+       : "🆓 FREE"
+   }</b>
    Status: ${user.subscriptionActive ? "✅ ACTIVE" : "❌ INACTIVE"}
    ${
      user.subscriptionActive
@@ -972,13 +1232,21 @@ function handleVerifyCommand(bot) {
 <b>✅ Subscription Status Verified</b>
 
 <b>Your Account:</b>
-💎 Plan: ${user.plan === PLANS.PRO ? "🌟 PRO" : "🆓 FREE"}
+💎 Plan: ${
+        user.plan === "premium"
+          ? "🚀 PREMIUM"
+          : user.plan === "pro"
+          ? "💎 PRO"
+          : "🆓 FREE"
+      }
 Status: ${subscriptionStatus}
 📊 AI Usage: ${user.aiUsage}
 
 ${
   user.subscriptionActive
-    ? "<b>✨ Your subscription is active!</b>\nYou can now use all PRO features.\n\nUse /ai &lt;prompt&gt; to ask questions!"
+    ? `<b>✨ Your ${
+        user.plan === "premium" ? "PREMIUM" : user.plan === "pro" ? "PRO" : "FREE"
+      } subscription is active!</b>\n\nYou can now use all available features.\n\nUse /ai <prompt> to ask questions!`
     : '<b>⏳ Waiting for activation...</b>\n\nIf you recently completed payment, it may take 1-2 minutes to activate.\n\nUse /upgrade to subscribe or contact support.'
 }
       `;
