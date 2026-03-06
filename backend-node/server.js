@@ -89,20 +89,6 @@ app.get("/health", async (req, res) => {
 TELEGRAM WEBHOOK
 ============================== */
 
-// Verify Telegram webhook signature for security
-function isTelegramUpdateValid(req) {
-  const signature = req.headers["x-telegram-bot-api-secret-hash"];
-  if (!signature) return false;
-
-  const checkString = JSON.stringify(req.body);
-  const computed = crypto
-    .createHmac("sha256", env.TELEGRAM_TOKEN)
-    .update(checkString)
-    .digest("hex");
-
-  return signature === computed;
-}
-
 app.post("/webhook", async (req, res) => {
   try {
     // Log incoming webhook
