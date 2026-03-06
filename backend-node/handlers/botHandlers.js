@@ -543,23 +543,23 @@ function handleProfileCommand(bot) {
       );
 
       const profileText = `
-👤 *Your Profile*
+👤 <b>Your Profile</b>
 
-*User Info:*
+<b>User Info:</b>
 Name: ${msg.from.first_name || "User"} ${msg.from.last_name || ""}
 Username: @${msg.from.username || "N/A"}
 
-*Subscription:*
+<b>Subscription:</b>
 💎 Plan: ${user.plan === PLANS.PRO ? "🌟 PRO" : "🆓 FREE"}
 Status: ${subscriptionStatus}
 
-*Usage:*
+<b>Usage:</b>
 📊 AI Queries: ${user.aiUsage}/${user.plan === PLANS.PRO ? "Unlimited ∞" : env.AI_USAGE_FREE_LIMIT}
 📈 Usage: ${usagePercentage}%
 
-*Account:*
+<b>Account:</b>
 📅 Joined: ${user.createdAt?.toLocaleDateString()}
-🆔 ID: \`${telegramId}\`
+🆔 ID: ${telegramId}
       `;
 
       const keyboard = {
@@ -572,7 +572,7 @@ Status: ${subscriptionStatus}
       };
 
       await bot.sendMessage(msg.chat.id, profileText, {
-        parse_mode: "Markdown",
+        parse_mode: "HTML",
         reply_markup: keyboard,
       });
     } catch (error) {
