@@ -75,17 +75,22 @@ export class SubscriptionService {
    */
   static async cancelSubscription(telegramId) {
     try {
-      const updated = await User.findOneAndUpdate(
-        { telegramId },
-        {
-          subscriptionActive: false,
-          plan: PLANS.FREE,
-        },
-        { new: true }
-      );
+      const user = await User.findOne({ telegramId });
+
+      if (!user) {
+        logger.warn(`User not found for cancellation: ${telegramId}`);
+        return null;
+      }
+
+      // Use direct save instead of findOneAndUpdate
+      user.subscriptionActive = false;
+      user.plan = PLANS.FREE;
+
+      const updated = await user.save();
 
       if (updated) {
-        logger.info(`Subscription cancelled for user ${telegramId}`);
+        logger.success(`✅ Subscription cancelled for user ${telegramId}`);
+        logger.info(`  Plan reverted to: ${updated.plan}`);
       }
 
       return updated;

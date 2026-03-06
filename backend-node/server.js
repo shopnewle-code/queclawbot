@@ -47,6 +47,25 @@ app.use(
 
 app.use(express.json({ limit: "10mb" }));
 app.use(validateJSON);
+
+/**
+ * PayPal Webhook Debug Middleware
+ * Log all PayPal webhook requests before routing
+ */
+app.use((req, res, next) => {
+  if (req.path.includes("paypal") || req.path.includes("webhook")) {
+    logger.warn(`\n${"=".repeat(80)}`);
+    logger.warn(`🔔 INCOMING REQUEST TO WEBHOOK`);
+    logger.warn(`Method: ${req.method}`);
+    logger.warn(`Path: ${req.path}`);
+    logger.warn(`Full URL: ${req.originalUrl}`);
+    logger.warn(`Content-Type: ${req.headers["content-type"]}`);
+    logger.warn(`Body Size: ${JSON.stringify(req.body).length} bytes`);
+    logger.warn(`${"=".repeat(80)}\n`);
+  }
+  next();
+});
+
 app.use(requestLogger);
 
 /* ==============================

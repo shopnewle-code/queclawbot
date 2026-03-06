@@ -7,6 +7,15 @@ import { logger } from "../utils/logger.js";
 const router = express.Router();
 
 /**
+ * Debug middleware - log all requests to this router
+ */
+router.use((req, res, next) => {
+  logger.warn(`\n📡 [PayPal Routes] ${req.method} ${req.path}`);
+  logger.warn(`Body preview: ${JSON.stringify(req.body).substring(0, 100)}...`);
+  next();
+});
+
+/**
  * PayPal Routes
  */
 
@@ -575,6 +584,28 @@ router.get("/success", async (req, res) => {
       </html>
     `);
   }
+});
+
+/**
+ * GET /api/paypal/health
+ * Diagnostic endpoint - checks if webhook route is working
+ */
+router.get("/health", (req, res) => {
+  logger.success(`✅ PayPal routes are working`);
+  res.json({
+    success: true,
+    message: "PayPal routes are operational",
+    endpoints: {
+      webhook: "POST /api/paypal/webhook",
+      "create-subscription": "POST /api/paypal/create-subscription",
+      "test-webhook": "POST /api/paypal/test-webhook/:subscriptionId",
+      "debug-resend-webhook": "POST /api/paypal/debug-resend-webhook/:subscriptionId",
+      "debug-activate": "POST /api/paypal/debug-activate/:telegramId",
+      "test-activate": "POST /api/paypal/test-activate/:telegramId",
+      verify: "GET /api/paypal/verify/:telegramId",
+    },
+    timestamp: new Date().toISOString(),
+  });
 });
 
 /**
