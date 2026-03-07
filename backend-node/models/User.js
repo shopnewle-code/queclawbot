@@ -94,6 +94,16 @@ const userSchema = new mongoose.Schema(
     },
     lastQuery: Date,
 
+    // Webhook Deduplication (prevent duplicate processing)
+    processedWebhookIds: [
+      {
+        type: String,
+        index: true,
+      },
+    ],
+    lastWebhookId: String,
+    lastWebhookTime: Date,
+
     // Subscription Notifications
     subscriptionNotified: {
       type: Boolean,
