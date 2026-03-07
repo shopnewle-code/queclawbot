@@ -12,6 +12,7 @@ import { connectMongoDB } from "./config/mongodb.js";
 
 import SubscriptionService from "./services/subscriptionService.js";
 import registerBotHandlers from "./handlers/botHandlers.js";
+import registerStarsPaymentHandlers from "./handlers/starsPaymentHandler.js";
 import handlePayPalWebhook from "./handlers/paypalWebhookHandler.js";
 
 import generalRoutes from "./routes/generalRoutes.js";
@@ -247,6 +248,7 @@ async function initialize() {
 
     bot = new TelegramBot(env.TELEGRAM_TOKEN);
     registerBotHandlers(bot);
+    registerStarsPaymentHandlers(bot);
 
     app.locals.bot = bot;
 

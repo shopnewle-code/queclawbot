@@ -4,6 +4,7 @@ import AIService from "../services/aiService.js";
 import PayPalService from "../services/paypalService.js";
 import SubscriptionService from "../services/subscriptionService.js";
 import AIUsageService from "../services/aiUsageService.js";
+import DailyUsageLimiter from "../services/dailyUsageLimiter.js";
 import ReferralService from "../services/referralService.js";
 import { logger } from "../utils/logger.js";
 import { sanitizeMarkdown, sanitizeHTML } from "../utils/messageSanitizer.js";
@@ -78,6 +79,31 @@ function handleCallbackQuery(bot) {
       if (data === "help") {
         const helpCmd = handleHelpCommand(bot);
         await helpCmd({ chat: message.chat, from });
+      } else if (data === "noop") {
+        responseText = "Choose a payment method above";
+        showAlert = true;
+      } else if (data.startsWith("pay_stars_")) {
+        // Handle Telegram Stars payments
+        try {
+          const plan = data.split("_")[2]; // pro, ultra, lifetime
+          await handleStarsPayment(bot, query, plan);
+          return;
+        } catch (err) {
+          logger.error("Stars payment error", err);
+          responseText = "Failed to initiate Telegram Stars payment";
+          showAlert = true;
+        }
+      } else if (data.startsWith("pay_paypal_")) {
+        // Handle PayPal payments
+        try {
+          const plan = data.split("_")[2]; // pro, ultra
+          await handlePayPalPayment(bot, query, plan);
+          return;
+        } catch (err) {
+          logger.error("PayPal payment error", err);
+          responseText = "Failed to initiate PayPal payment";
+          showAlert = true;
+        }
       } else if (data === "upgrade") {
         const upgradeCmd = handleUpgradeCommand(bot);
         await upgradeCmd({ chat: message.chat, from });
@@ -718,64 +744,75 @@ function handleUpgradeCommand(bot) {
       const telegramId = msg.from.id.toString();
       const user = await SubscriptionService.findOrCreateUser(telegramId);
 
-      const upgradeText = `
-<b>💰 QueClaw Pricing Plans</b>
-
-Select the plan that works best for you:
-
-<b>🆓 FREE (Current ${user.plan === "free" ? "✓" : ""})</b>
-• 5 queries/day
-• 100 queries/month
-• Basic AI features
-No credit card needed!
-
-<b>💎 PRO</b> - <b>$4.99/month</b>
-• 90 queries/day
-• 2,500 queries/month
-• 50 queries/hour rate limit
-• Image generation
-• Web search enabled
-• Priority processing
-Perfect for enthusiasts!
-
-<b>🚀 PREMIUM</b> - <b>$9.99/month</b>
-• Unlimited daily queries
-• 5,000 queries/month
-• Unlimited hourly rate limit
-• All features unlocked
-• Priority support
-• Custom integrations
-For power users!`;
+      const upgradeText = 
+        `<b>💰 QueClaw Pricing Plans</b>\n\n` +
+        `Select the plan that works best for you:\n\n` +
+        `<b>🆓 FREE</b>${user.plan === "free" ? " ✓ Current" : ""}\n` +
+        `• 10 queries/day\n` +
+        `• Basic AI features\n` +
+        `• No credit card\n\n` +
+        `<b>💎 PRO</b>\n` +
+        `• 90 queries/day\n` +
+        `• Image generation\n` +
+        `• Web search\n` +
+        `• Priority support\n\n` +
+        `<b>🚀 ULTRA</b>\n` +
+        `• Unlimited queries\n` +
+        `• All pro features\n` +
+        `• Custom integrations\n\n` +
+        `<b>Choose payment method below:</b>`;
 
       await bot.sendMessage(msg.chat.id, upgradeText, {
         parse_mode: "HTML",
         reply_markup: {
           inline_keyboard: [
+            // Telegram Stars payments
             [
               {
-                text: "💎 Upgrade to PRO - $4.99",
-                callback_data: "upgrade_pro",
+                text: "⭐ PRO - 500 Stars (30 days)",
+                callback_data: "pay_stars_pro",
               },
             ],
             [
               {
-                text: "🚀 Upgrade to PREMIUM - $9.99",
-                callback_data: "upgrade_premium",
+                text: "⭐ ULTRA - 1200 Stars (90 days)",
+                callback_data: "pay_stars_ultra",
               },
             ],
             [
               {
-                text: "📋 Detailed Comparison",
-                callback_data: "view_plans",
+                text: "⭐ LIFETIME - 3500 Stars Forever",
+                callback_data: "pay_stars_lifetime",
               },
             ],
+            // Divider
+            [
+              {
+                text: "━━━ Or use PayPal ━━━",
+                callback_data: "noop",
+              },
+            ],
+            // PayPal payments
+            [
+              {
+                text: "💳 PRO - PayPal ($4.99/month)",
+                callback_data: "pay_paypal_pro",
+              },
+            ],
+            [
+              {
+                text: "💳 ULTRA - PayPal ($9.99/month)",
+                callback_data: "pay_paypal_ultra",
+              },
+            ],
+            // Help
             [
               {
                 text: "❓ Help",
                 callback_data: "help",
               },
               {
-                text: "🎁 Refer Friends",
+                text: "🎁 Referrals",
                 callback_data: "referral_stats",
               },
             ],
@@ -783,7 +820,7 @@ For power users!`;
         },
       });
 
-      logger.info(`Upgrade command used by ${telegramId}`);
+      logger.info(`Upgrade command used by ${telegramId} - Plan: ${user.plan}`);
     } catch (error) {
       logger.error("Upgrade command error", error);
       await bot.sendMessage(msg.chat.id, "❌ " + TELEGRAM_MESSAGES.PAYMENT_ERROR);
@@ -1277,6 +1314,122 @@ function handleVerifyCommand(bot) {
       await bot.sendMessage(msg.chat.id, "❌ Failed to verify subscription");
     }
   };
+}
+
+/**
+ * Handle Telegram Stars payment
+ */
+async function handleStarsPayment(bot, query, plan) {
+  const { message, from } = query;
+  const telegramId = from.id.toString();
+
+  const starsPrices = {
+    pro: 500,
+    ultra: 1200,
+    lifetime: 3500,
+  };
+
+  const planNames = {
+    pro: "PRO (30 days)",
+    ultra: "ULTRA (90 days)",
+    lifetime: "LIFETIME",
+  };
+
+  const amount = starsPrices[plan];
+  const planName = planNames[plan];
+
+  if (!amount) {
+    await bot.answerCallbackQuery(query.id, {
+      text: "Invalid plan",
+      show_alert: true,
+    });
+    return;
+  }
+
+  try {
+    logger.info(`🌟 Initiating Telegram Stars payment for user ${telegramId}`);
+    logger.info(`   Plan: ${plan}, Amount: ⭐${amount}`);
+
+    // Send invoice for Telegram Stars
+    await bot.sendInvoice(
+      message.chat.id,
+      `QueClaw ${planName}`,
+      `Unlock premium AI features with QueClaw ${planName} subscription`,
+      JSON.stringify({ plan, userId: telegramId, timestamp: Date.now() }),
+      "",  // provider token is empty for Telegram Stars
+      "XTR",  // Telegram Stars currency
+      [
+        {
+          label: `QueClaw ${planName}`,
+          amount: amount,
+        },
+      ]
+    );
+
+    logger.success(`✅ Invoice sent for ${planName} (⭐${amount})`);
+
+    await bot.answerCallbackQuery(query.id, {
+      text: "Invoice sent! Complete payment in Telegram.",
+      show_alert: false,
+    });
+  } catch (error) {
+    logger.error("Telegram Stars payment error", error);
+    await bot.answerCallbackQuery(query.id, {
+      text: "Failed to create payment invoice",
+      show_alert: true,
+    });
+  }
+}
+
+/**
+ * Handle PayPal payment
+ */
+async function handlePayPalPayment(bot, query, plan) {
+  const { message, from } = query;
+  const telegramId = from.id.toString();
+
+  try {
+    logger.info(`💳 Initiating PayPal payment for user ${telegramId}`);
+    logger.info(`   Plan: ${plan}`);
+
+    // Create subscription link
+    const { approvalUrl } = await PayPalService.createSubscription(telegramId);
+
+    logger.success(`✅ PayPal approval URL generated`);
+
+    // Show confirmation and send link
+    await bot.editMessageText(
+      `💳 <b>PayPal Checkout</b>\n\n` +
+      `Plan: <b>${plan.toUpperCase()}</b>\n\n` +
+      `Click the button below to complete payment on PayPal.\n` +
+      `You'll be automatically upgraded after payment.`,
+      {
+        chat_id: message.chat.id,
+        message_id: message.message_id,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "🔓 Open PayPal Payment",
+                url: approvalUrl,
+              },
+            ],
+          ],
+        },
+      }
+    );
+
+    await bot.answerCallbackQuery(query.id, {
+      text: "Opening PayPal...",
+    });
+  } catch (error) {
+    logger.error("PayPal payment error", error);
+    await bot.answerCallbackQuery(query.id, {
+      text: "Failed to create payment link",
+      show_alert: true,
+    });
+  }
 }
 
 export default registerBotHandlers;
