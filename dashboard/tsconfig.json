@@ -33,6 +33,15 @@
       ],
       "@/styles/*": [
         "./styles/*"
+      ],
+      "@/types/*": [
+        "./types/*"
+      ],
+      "@/store/*": [
+        "./store/*"
+      ],
+      "@/app/*": [
+        "./app/*"
       ]
     },
     "incremental": true
