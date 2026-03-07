@@ -12,6 +12,7 @@ import { connectMongoDB } from "./config/mongodb.js";
 
 import SubscriptionService from "./services/subscriptionService.js";
 import registerBotHandlers from "./handlers/botHandlers.js";
+import handlePayPalWebhook from "./handlers/paypalWebhookHandler.js";
 
 import generalRoutes from "./routes/generalRoutes.js";
 import paypalRoutes from "./routes/paypalRoutes.js";
@@ -134,6 +135,62 @@ API ROUTES
 
 app.use("/api", generalRoutes);
 app.use("/api/paypal", paypalRoutes);
+
+/* ==============================
+PAYPAL WEBHOOK (Direct Route - No /api prefix)
+============================== */
+// PayPal sends webhooks to /paypal/webhook (not /api/paypal/webhook)
+// We need a direct route here to catch it
+
+app.post("/paypal/webhook", async (req, res) => {
+  try {
+    const event = req.body;
+
+    if (!event.event_type) {
+      logger.warn("❌ Invalid webhook: missing event_type");
+      return res.status(400).json({
+        success: false,
+        error: "Invalid webhook event",
+      });
+    }
+
+    const bot = req.app.locals.bot;
+
+    if (!bot) {
+      logger.error("❌ Bot instance not available for webhook");
+      return res.status(500).json({
+        success: false,
+        error: "Bot not initialized",
+      });
+    }
+
+    logger.warn(`\n${"=".repeat(80)}`);
+    logger.warn(`📡 PAYPAL WEBHOOK RECEIVED (Direct Route)`);
+    logger.warn(`Event Type: ${event.event_type}`);
+    logger.warn(`Resource ID: ${event.resource?.id}`);
+    logger.warn(`Custom ID: ${event.resource?.custom_id}`);
+    logger.warn(`Status: ${event.resource?.status}`);
+    logger.warn(`${"=".repeat(80)}\n`);
+    
+    const result = await handlePayPalWebhook(event, bot);
+
+    // Always return 200 OK to PayPal to confirm receipt
+    res.status(200).json({
+      success: true,
+      message: "Webhook processed",
+      event_type: event.event_type,
+      processed: result,
+    });
+  } catch (error) {
+    logger.error("❌ Webhook processing error", error);
+    // Still return 200 to prevent PayPal from retrying
+    res.status(200).json({
+      success: false,
+      error: "Webhook processing failed",
+      message: error.message,
+    });
+  }
+});
 
 /* ==============================
 ERROR HANDLING
