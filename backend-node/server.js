@@ -142,52 +142,84 @@ PAYPAL WEBHOOK (Direct Route - No /api prefix)
 // PayPal sends webhooks to /paypal/webhook (not /api/paypal/webhook)
 // We need a direct route here to catch it
 
+/**
+ * GET /paypal/webhook
+ * PayPal verification ping - they check if endpoint is alive
+ */
+app.get("/paypal/webhook", (req, res) => {
+  logger.info("✅ PayPal webhook verification ping received");
+  res.status(200).send("OK");
+});
+
+/**
+ * POST /paypal/webhook
+ * PayPal webhook event handler
+ * CRITICAL: Always return 200 status to prevent "Pending" status in PayPal dashboard
+ */
 app.post("/paypal/webhook", async (req, res) => {
+  let eventType = "UNKNOWN";
+  
   try {
     const event = req.body;
+    eventType = event?.event_type || "UNKNOWN";
 
-    if (!event.event_type) {
-      logger.warn("❌ Invalid webhook: missing event_type");
-      return res.status(400).json({
-        success: false,
-        error: "Invalid webhook event",
+    // Log incoming webhook
+    logger.warn(`\n${"=".repeat(80)}`);
+    logger.warn(`🔔 PAYPAL WEBHOOK RECEIVED`);
+    logger.warn(`Event Type: ${eventType}`);
+    logger.warn(`Resource ID: ${event?.resource?.id}`);
+    logger.warn(`Custom ID: ${event?.resource?.custom_id}`);
+    logger.warn(`Status: ${event?.resource?.status}`);
+    logger.warn(`Timestamp: ${new Date().toISOString()}`);
+    logger.warn(`${"=".repeat(80)}\n`);
+
+    // Validate event structure
+    if (!event || !eventType) {
+      logger.warn(`⚠️ Invalid webhook: missing event or event_type`);
+      // Still return 200 to acknowledge receipt
+      return res.status(200).json({
+        received: true,
+        status: "invalid_structure",
       });
     }
 
+    // Get bot instance
     const bot = req.app.locals.bot;
 
     if (!bot) {
       logger.error("❌ Bot instance not available for webhook");
-      return res.status(500).json({
-        success: false,
-        error: "Bot not initialized",
+      // Still return 200 - bot unavailability is a infrastructure issue, not a webhook issue
+      return res.status(200).json({
+        received: true,
+        status: "bot_unavailable",
+        event_type: eventType,
       });
     }
 
-    logger.warn(`\n${"=".repeat(80)}`);
-    logger.warn(`📡 PAYPAL WEBHOOK RECEIVED (Direct Route)`);
-    logger.warn(`Event Type: ${event.event_type}`);
-    logger.warn(`Resource ID: ${event.resource?.id}`);
-    logger.warn(`Custom ID: ${event.resource?.custom_id}`);
-    logger.warn(`Status: ${event.resource?.status}`);
-    logger.warn(`${"=".repeat(80)}\n`);
-    
+    // Process webhook event
+    logger.info(`📥 Processing webhook event: ${eventType}`);
     const result = await handlePayPalWebhook(event, bot);
 
-    // Always return 200 OK to PayPal to confirm receipt
+    // Return 200 OK to confirm receipt
     res.status(200).json({
-      success: true,
-      message: "Webhook processed",
-      event_type: event.event_type,
+      received: true,
       processed: result,
+      event_type: eventType,
+      timestamp: new Date().toISOString(),
     });
+
+    logger.success(`✅ Webhook ${eventType} acknowledged and processed`);
   } catch (error) {
-    logger.error("❌ Webhook processing error", error);
-    // Still return 200 to prevent PayPal from retrying
+    logger.error(`❌ Webhook processing error for ${eventType}`, error);
+    
+    // CRITICAL: Still return 200 to prevent PayPal from retrying
+    // PayPal interprets non-2xx responses as delivery failure
     res.status(200).json({
-      success: false,
-      error: "Webhook processing failed",
-      message: error.message,
+      received: true,
+      processed: false,
+      error: error.message,
+      event_type: eventType,
+      timestamp: new Date().toISOString(),
     });
   }
 });
