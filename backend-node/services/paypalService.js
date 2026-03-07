@@ -104,22 +104,27 @@ export class PayPalService {
   /**
    * Create a one-time order
    */
-  async createOrder(amount = "5.00", currency = "USD") {
+  async createOrder(amount = "5.00", currency = "USD", telegramId = null) {
     try {
       const token = await this.getAccessToken();
+
+      const purchaseUnit = {
+        amount: {
+          currency_code: currency,
+          value: amount,
+        },
+      };
+
+      // Include telegram ID for webhook to link payment to user
+      if (telegramId) {
+        purchaseUnit.custom_id = telegramId.toString();
+      }
 
       const response = await axios.post(
         `${this.baseURL}/v2/checkout/orders`,
         {
           intent: "CAPTURE",
-          purchase_units: [
-            {
-              amount: {
-                currency_code: currency,
-                value: amount,
-              },
-            },
-          ],
+          purchase_units: [purchaseUnit],
         },
         {
           headers: {
@@ -130,7 +135,7 @@ export class PayPalService {
         }
       );
 
-      logger.success(`Order created: ${response.data.id}`);
+      logger.success(`Order created: ${response.data.id}${telegramId ? " for user " + telegramId : ""}`);
       return response.data;
     } catch (error) {
       logger.error("Failed to create order", error);

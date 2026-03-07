@@ -151,29 +151,86 @@ async function handleSubscriptionActivation(event, bot) {
  */
 async function handlePaymentCompleted(event, bot) {
   try {
+    const saleId = event.resource.id;
+    const customId = event.resource.custom_id; // Telegram ID passed during order creation
     const subscriptionId = event.resource.billing_agreement_id;
+    const amount = event.resource.amount;
 
-    const user = await User.findOne({ subscriptionId });
+    logger.info(`💳 Payment Sale Completed`);
+    logger.info(`  Sale ID: ${saleId}`);
+    logger.info(`  Custom ID (Telegram): ${customId}`);
+    logger.info(`  Billing Agreement ID: ${subscriptionId}`);
+    logger.info(`  Amount: ${amount?.total} ${amount?.currency}`);
 
-    if (user) {
-      const renewed = await SubscriptionService.renewSubscription(subscriptionId);
+    // CRITICAL: Try to find user by custom_id first (this is the telegram ID)
+    let user = null;
+    let telegramId = customId;
 
-      if (renewed) {
-        try {
-          await bot.sendMessage(
-            user.telegramId,
-            "💳 Monthly Payment Received\n\n" +
-              "✅ Your subscription has been renewed\n" +
-              "Your AI usage has been reset\n\n" +
-              "Thank you for your continued support!"
-          );
-        } catch (err) {
-          logger.warn(`Failed to send payment message to ${user.telegramId}`);
-        }
+    if (telegramId) {
+      user = await User.findOne({ telegramId });
+      if (user) {
+        logger.success(`✅ Found user by custom_id (telegram_id): ${telegramId}`);
       }
     }
+
+    // Fallback 1: Try subscription ID
+    if (!user && subscriptionId) {
+      logger.warn(`⚠️ User not found by custom_id. Trying subscriptionId...`);
+      user = await User.findOne({ subscriptionId });
+      if (user) {
+        logger.success(`✅ Found user by subscriptionId: ${subscriptionId}`);
+        telegramId = user.telegramId;
+      }
+    }
+
+    // Fallback 2: Try sale ID
+    if (!user && saleId) {
+      logger.warn(`⚠️ User not found by subscription. Trying sale ID...`);
+      user = await User.findOne({ lastPaymentId: saleId });
+      if (user) {
+        logger.success(`✅ Found user by sale ID: ${saleId}`);
+        telegramId = user.telegramId;
+      }
+    }
+
+    if (!user) {
+      logger.error(`❌ CRITICAL: Could not find user for payment:`);
+      logger.error(`  Sale ID: ${saleId}`);
+      logger.error(`  Custom ID (Telegram): ${customId}`);
+      logger.error(`  Subscription ID: ${subscriptionId}`);
+      logger.error(`\n📋 Debugging: Check your database:`);
+      logger.error(`  1. Does user exist with telegramId = ${customId}?`);
+      logger.error(`  2. Is the custom_id being passed to PayPal orders?`);
+      logger.error(`  3. Check /paypal/create-order endpoint for telegram_id parameter`);
+      return;
+    }
+
+    logger.info(`✅ Processing payment for user: ${user.telegramId} (${user.username})`);
+
+    // Renew subscription if there's a subscription ID
+    if (subscriptionId) {
+      logger.info(`  Renewing subscription: ${subscriptionId}`);
+      const renewed = await SubscriptionService.renewSubscription(subscriptionId);
+      logger.info(`  Renewal result: ${renewed ? "✅ Success" : "❌ Failed"}`);
+    }
+
+    // Send confirmation message to user
+    try {
+      const message = 
+        "💳 <b>Monthly Payment Received</b>\n\n" +
+        "✅ Your subscription has been renewed\n" +
+        "Your AI usage has been reset\n\n" +
+        `💰 Amount: ${amount?.total} ${amount?.currency}\n` +
+        "⏱️ Access until: " + (user.subscriptionExpire?.toLocaleDateString() || "N/A") + "\n\n" +
+        "Thank you for your support! 🙏";
+
+      await bot.sendMessage(user.telegramId, message, { parse_mode: "HTML" });
+      logger.success(`✅✅ Payment confirmation sent to user ${user.telegramId}`);
+    } catch (err) {
+      logger.error(`❌ Failed to send payment message to ${user.telegramId}`, err.message);
+    }
   } catch (error) {
-    logger.error("Failed to handle payment completion", error);
+    logger.error("❌ Failed to handle payment completion", error);
   }
 }
 

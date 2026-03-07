@@ -57,9 +57,16 @@ router.post("/create-subscription", async (req, res) => {
  */
 router.post("/create-order", async (req, res) => {
   try {
-    const { amount = "5.00", currency = "USD" } = req.body;
+    const { amount = "5.00", currency = "USD", telegram_id } = req.body;
 
-    const order = await PayPalService.createOrder(amount, currency);
+    if (!telegram_id) {
+      return res.status(400).json({
+        success: false,
+        error: "telegram_id is required",
+      });
+    }
+
+    const order = await PayPalService.createOrder(amount, currency, telegram_id);
 
     res.json({
       success: true,
