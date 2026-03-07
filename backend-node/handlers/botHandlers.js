@@ -6,6 +6,7 @@ import SubscriptionService from "../services/subscriptionService.js";
 import AIUsageService from "../services/aiUsageService.js";
 import ReferralService from "../services/referralService.js";
 import { logger } from "../utils/logger.js";
+import { sanitizeMarkdown, sanitizeHTML } from "../utils/messageSanitizer.js";
 
 /**
  * Telegram Bot Handlers
@@ -658,29 +659,39 @@ function handleAICommand(bot) {
           `✅ AI query from ${telegramId} - Daily: ${summary.daily.used}/${summary.daily.limit}, Total: ${summary.totalQueries} - Time: ${duration}ms`
         );
 
-        // Format response with markdown
+        // Format response - sanitize to prevent Telegram parsing errors
         let response = aiResponse.reply || aiResponse;
 
+        // Sanitize response to remove unsupported HTML/XML tags
+        response = sanitizeHTML(response);
+
+        // Escape special characters for safe markdown rendering
+        const safePrompt = sanitizeMarkdown(prompt);
+
         // Truncate if too long (Telegram limit is 4096)
-        if (response.length > 4000) {
-          response = response.substring(0, 3990) + "...\n\n*[Response truncated]*";
+        if (response.length > 3900) {
+          response = response.substring(0, 3890) + "\n\n*[Response truncated]*";
         }
 
         // Edit thinking message with actual response
-        await bot.editMessageText(
-          `*Your Query:*\n\`${prompt}\`\n\n*Response:*\n${response}\n\n⏱️ Response time: ${duration}ms`,
-          {
-            chat_id: msg.chat.id,
-            message_id: thinkingMsg.message_id,
-            parse_mode: "Markdown",
-          }
-        );
+        const finalMessage = 
+          `*Your Query:*\n\`${safePrompt}\`\n\n` +
+          `*Response:*\n${response}\n\n` +
+          `⏱️ _Response time: ${duration}ms_`;
+
+        await bot.editMessageText(finalMessage, {
+          chat_id: msg.chat.id,
+          message_id: thinkingMsg.message_id,
+          parse_mode: "Markdown",
+        });
       } catch (aiError) {
         logger.error("AI service error", aiError);
 
         const errorMessage = aiError.message || "Unknown error";
+        const safeError = sanitizeMarkdown(errorMessage);
+        
         await bot.editMessageText(
-          `❌ *AI Request Failed*\n\n${errorMessage}\n\nPlease try again in a moment.`,
+          `❌ *AI Request Failed*\n\n${safeError}\n\nPlease try again in a moment.`,
           {
             chat_id: msg.chat.id,
             message_id: thinkingMsg.message_id,
@@ -1228,28 +1239,24 @@ function handleVerifyCommand(bot) {
         ? `✅ Active (expires ${user.subscriptionExpire?.toLocaleDateString() || "N/A"})`
         : "❌ Inactive";
 
-      const verifyText = `
-<b>✅ Subscription Status Verified</b>
-
-<b>Your Account:</b>
-💎 Plan: ${
+      const planName = 
         user.plan === "premium"
-          ? "🚀 PREMIUM"
+          ? "🚀 PREMIUM Unlimited"
           : user.plan === "pro"
-          ? "💎 PRO"
-          : "🆓 FREE"
-      }
-Status: ${subscriptionStatus}
-📊 AI Usage: ${user.aiUsage}
+          ? "💎 PRO (90 queries/day)"
+          : "🆓 FREE";
 
-${
-  user.subscriptionActive
-    ? `<b>✨ Your ${
-        user.plan === "premium" ? "PREMIUM" : user.plan === "pro" ? "PRO" : "FREE"
-      } subscription is active!</b>\n\nYou can now use all available features.\n\nUse /ai <prompt> to ask questions!`
-    : '<b>⏳ Waiting for activation...</b>\n\nIf you recently completed payment, it may take 1-2 minutes to activate.\n\nUse /upgrade to subscribe or contact support.'
-}
-      `;
+      const activationMessage = user.subscriptionActive
+        ? `<b>✨ Your ${user.plan.toUpperCase()} subscription is active!</b>\n\nYou can now use all available features.\n\nUse /ai to ask questions!`
+        : `<b>⏳ Waiting for activation...</b>\n\nIf you recently completed payment, it may take 1-2 minutes to activate.\n\nUse /upgrade to subscribe or contact support.`;
+
+      const verifyText = 
+        `<b>✅ Subscription Status Verified</b>\n\n` +
+        `<b>📋 Your Account:</b>\n` +
+        `Plan: ${planName}\n` +
+        `Status: ${subscriptionStatus}\n` +
+        `AI Usage: ${user.aiUsage}\n\n` +
+        activationMessage;
 
       await bot.sendMessage(msg.chat.id, verifyText, {
         parse_mode: "HTML",
