@@ -33,7 +33,12 @@ export const env = {
   MONGO_URI: process.env.MONGO_URI || "mongodb://127.0.0.1:27017/queclaw",
 
   // AI Engine
-  AI_SERVER_URL: process.env.AI_SERVER_URL || "http://localhost:8000",
+  AI_SERVER_URL:
+    process.env.AI_SERVER_URL ||
+    (process.env.NODE_ENV === "development" ? "http://localhost:8000" : ""),
+  OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
+  OPENAI_MODEL: process.env.OPENAI_MODEL || "gpt-4o-mini",
   HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
 
   // Settings

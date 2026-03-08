@@ -10,6 +10,9 @@ import { logger } from "../utils/logger.js";
 export class AIService {
   constructor() {
     this.aiServerUrl = env.AI_SERVER_URL;
+    this.openaiApiKey = env.OPENAI_API_KEY;
+    this.openaiBaseUrl = env.OPENAI_BASE_URL;
+    this.openaiModel = env.OPENAI_MODEL;
     this.timeout = 30000; // 30 seconds
   }
 
@@ -17,35 +20,123 @@ export class AIService {
    * Send prompt to AI engine and get response
    */
   async askAI(prompt, userId) {
+    const trimmedPrompt = `${prompt || ""}`.trim();
+    if (!trimmedPrompt) {
+      throw new Error("Prompt cannot be empty");
+    }
+
+    if (this.aiServerUrl) {
+      try {
+        const response = await axios.post(
+          `${this.aiServerUrl}/ask`,
+          {
+            text: trimmedPrompt,
+            user_id: userId,
+          },
+          {
+            timeout: this.timeout,
+            headers: {
+              "Content-Type": "application/json",
+            },
+          }
+        );
+
+        logger.debug(`AI response for user ${userId}`);
+        return response.data;
+      } catch (error) {
+        logger.error(`AI request failed for user ${userId}`, error.message);
+
+        if (error.response?.status === 429) {
+          throw new Error("AI server rate limit exceeded");
+        }
+
+        if (this.shouldFallbackToOpenAI(error) && this.openaiApiKey) {
+          logger.warn(
+            "AI server unavailable. Falling back to direct OpenAI API."
+          );
+          return this.askOpenAIDirect(trimmedPrompt, userId);
+        }
+
+        if (error.code === "ECONNREFUSED") {
+          throw new Error("AI server is not running");
+        }
+
+        throw error;
+      }
+    }
+
+    if (this.openaiApiKey) {
+      return this.askOpenAIDirect(trimmedPrompt, userId);
+    }
+
+    throw new Error(
+      "AI is not configured. Set AI_SERVER_URL or OPENAI_API_KEY."
+    );
+  }
+
+  shouldFallbackToOpenAI(error) {
+    if (!error) return true;
+
+    const networkErrors = new Set([
+      "ECONNREFUSED",
+      "ENOTFOUND",
+      "ETIMEDOUT",
+      "ECONNRESET",
+      "EAI_AGAIN",
+    ]);
+
+    if (networkErrors.has(error.code)) {
+      return true;
+    }
+
+    const status = error.response?.status;
+    return status >= 500;
+  }
+
+  async askOpenAIDirect(prompt, userId) {
+    if (!this.openaiApiKey) {
+      throw new Error("OPENAI_API_KEY is not configured");
+    }
+
     try {
       const response = await axios.post(
-        `${this.aiServerUrl}/ask`,
+        `${this.openaiBaseUrl}/chat/completions`,
         {
-          text: prompt,
-          user_id: userId,
+          model: this.openaiModel,
+          messages: [{ role: "user", content: prompt }],
         },
         {
           timeout: this.timeout,
           headers: {
             "Content-Type": "application/json",
+            Authorization: `Bearer ${this.openaiApiKey}`,
           },
         }
       );
 
-      logger.debug(`AI response for user ${userId}`);
-      return response.data;
-    } catch (error) {
-      logger.error(`AI request failed for user ${userId}`, error.message);
+      const reply = response.data?.choices?.[0]?.message?.content?.trim();
+      if (!reply) {
+        throw new Error("Empty response from OpenAI");
+      }
 
-      if (error.code === "ECONNREFUSED") {
-        throw new Error("AI server is not running");
+      logger.debug(`OpenAI response for user ${userId}`);
+      return {
+        reply,
+        provider: "openai",
+        model: this.openaiModel,
+      };
+    } catch (error) {
+      logger.error(`OpenAI request failed for user ${userId}`, error.message);
+
+      if (error.response?.status === 401) {
+        throw new Error("Invalid OPENAI_API_KEY");
       }
 
       if (error.response?.status === 429) {
-        throw new Error("AI server rate limit exceeded");
+        throw new Error("OpenAI rate limit exceeded");
       }
 
-      throw error;
+      throw new Error(error.response?.data?.error?.message || error.message);
     }
   }
 
@@ -97,6 +188,10 @@ export class AIService {
    * Health check for AI server
    */
   async healthCheck() {
+    if (!this.aiServerUrl) {
+      return Boolean(this.openaiApiKey);
+    }
+
     try {
       const response = await axios.get(`${this.aiServerUrl}/health`, {
         timeout: 5000,
