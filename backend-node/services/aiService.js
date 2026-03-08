@@ -69,26 +69,36 @@ export class AIService {
   }
 
   async askOpenAI(prompt) {
-    const response = await axios.post(
-      `${this.openaiBaseUrl}/chat/completions`,
-      {
-        model: this.openaiModel,
-        messages: [{ role: "user", content: prompt }],
-      },
-      {
-        timeout: this.timeout,
-        headers: {
-          Authorization: `Bearer ${this.openaiApiKey}`,
-          "Content-Type": "application/json",
+    try {
+      const response = await axios.post(
+        `${this.openaiBaseUrl}/chat/completions`,
+        {
+          model: this.openaiModel,
+          messages: [{ role: "user", content: prompt }],
         },
-      }
-    );
+        {
+          timeout: this.timeout,
+          headers: {
+            Authorization: `Bearer ${this.openaiApiKey}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
-    return {
-      reply: response.data.choices[0].message.content.trim(),
-      provider: "openai",
-      model: this.openaiModel,
-    };
+      return {
+        reply: response.data.choices[0].message.content.trim(),
+        provider: "openai",
+        model: this.openaiModel,
+      };
+    } catch (error) {
+      if (error.response?.status === 429) {
+        throw new Error("AI is busy. Please try again in a few seconds.");
+      }
+      if (error.response?.status === 401) {
+        throw new Error("Invalid OpenAI API key.");
+      }
+      throw new Error(error.response?.data?.error?.message || "AI error occurred.");
+    }
   }
 
   async askGroq(prompt) {
