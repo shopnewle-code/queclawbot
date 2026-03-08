@@ -13,6 +13,10 @@ export class AIService {
     this.openaiBaseUrl = env.OPENAI_BASE_URL || "https://api.openai.com/v1";
     this.openaiModel = env.OPENAI_MODEL || "gpt-4o-mini";
     this.defaultProvider = (env.AI_PROVIDER || "auto").toLowerCase();
+    this.groqModels = (env.GROQ_MODELS || "llama-3.3-70b-versatile,llama-3.1-8b-instant,llama3-70b-8192")
+      .split(",")
+      .map((m) => m.trim())
+      .filter(Boolean);
     this.timeout = 30000;
   }
 
@@ -35,7 +39,6 @@ export class AIService {
         if (!this.groqApiKey) throw error;
       }
     }
-
     return await this.askGroq(text);
   }
 
@@ -62,7 +65,14 @@ export class AIService {
       );
 
       if (selectedProvider === "openai") {
-        return await this.askWithOpenAIThenGroq(text);
+        try {
+          return await this.askWithOpenAIThenGroq(text);
+        } catch (primaryError) {
+          logger.warn(`OpenAI/Groq chain failed: ${primaryError.message}`);
+          if (this.geminiApiKey) return await this.askGemini(text);
+          if (this.hfApiKey) return await this.askHuggingFace(text);
+          throw primaryError;
+        }
       }
 
       if (selectedProvider === "groq") {
@@ -81,7 +91,14 @@ export class AIService {
       }
 
       if (normalizedPlan === "pro" || isPremiumTier) {
-        return await this.askWithOpenAIThenGroq(text);
+        try {
+          return await this.askWithOpenAIThenGroq(text);
+        } catch (primaryError) {
+          logger.warn(`Primary provider chain failed: ${primaryError.message}`);
+          if (this.geminiApiKey) return await this.askGemini(text);
+          if (this.hfApiKey) return await this.askHuggingFace(text);
+          throw primaryError;
+        }
       }
 
       if (this.groqApiKey) {
@@ -141,26 +158,44 @@ export class AIService {
   }
 
   async askGroq(prompt) {
-    const response = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        model: "llama3-70b-8192",
-        messages: [{ role: "user", content: prompt }],
-      },
-      {
-        timeout: this.timeout,
-        headers: {
-          Authorization: `Bearer ${this.groqApiKey}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    let lastError;
+    for (const model of this.groqModels) {
+      try {
+        const response = await axios.post(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            model,
+            messages: [{ role: "user", content: prompt }],
+          },
+          {
+            timeout: this.timeout,
+            headers: {
+              Authorization: `Bearer ${this.groqApiKey}`,
+              "Content-Type": "application/json",
+            },
+          }
+        );
 
-    return {
-      reply: response.data.choices[0].message.content,
-      provider: "groq",
-      model: "llama3-70b",
-    };
+        return {
+          reply: response.data.choices[0].message.content,
+          provider: "groq",
+          model,
+        };
+      } catch (error) {
+        lastError = error;
+        const details =
+          error.response?.data?.error?.message ||
+          error.response?.data?.message ||
+          error.message;
+        logger.warn(`Groq model ${model} failed: ${details}`);
+      }
+    }
+
+    throw new Error(
+      lastError?.response?.data?.error?.message ||
+        lastError?.response?.data?.message ||
+        "Groq request failed."
+    );
   }
 
   async askClaude(prompt) {

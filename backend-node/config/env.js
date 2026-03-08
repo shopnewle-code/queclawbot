@@ -39,6 +39,7 @@ export const env = {
   AI_PROVIDER: process.env.AI_PROVIDER || "auto",
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GROQ_API_KEY: process.env.GROQ_API_KEY,
+  GROQ_MODELS: process.env.GROQ_MODELS,
   CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,
   GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
