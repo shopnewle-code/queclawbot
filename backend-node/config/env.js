@@ -37,6 +37,9 @@ export const env = {
     process.env.AI_SERVER_URL ||
     (process.env.NODE_ENV === "development" ? "http://localhost:8000" : ""),
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
+  GROQ_API_KEY: process.env.GROQ_API_KEY,
+  CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,
+  GEMINI_API_KEY: process.env.GEMINI_API_KEY,
   OPENAI_BASE_URL: process.env.OPENAI_BASE_URL || "https://api.openai.com/v1",
   OPENAI_MODEL: process.env.OPENAI_MODEL || "gpt-4o-mini",
   HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,

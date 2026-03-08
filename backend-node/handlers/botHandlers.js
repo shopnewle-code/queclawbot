@@ -665,8 +665,9 @@ function handleAICommand(bot) {
       try {
         // Call AI service with timeout
         const startTime = Date.now();
+        const aiPlan = user?.plan || PLANS.FREE;
         const aiResponse = await Promise.race([
-          AIService.askAI(prompt, telegramId),
+          AIService.askAI(prompt, telegramId, aiPlan),
           new Promise((_, reject) =>
             setTimeout(
               () => reject(new Error("AI request timeout (30s)")),

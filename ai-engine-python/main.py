@@ -39,7 +39,7 @@ PLAN_LIMITS = {
 }
 
 PLAN_PROVIDERS = {
-    "free": ["groq"],, "huggingface"
+    "free": ["groq", "huggingface"],
     "pro": ["groq", "openai", "claude"]
 }
 
@@ -47,6 +47,7 @@ PLAN_PROVIDERS = {
 # 👤 Get User Info
 # ==============================
 @app.get("/user/{telegram_id}")
+@app.get("/get_user/{telegram_id}")
 def get_user(telegram_id: str):
     db = SessionLocal()
     user = db.query(User).filter(User.telegram_id == telegram_id).first()
@@ -68,13 +69,24 @@ def get_user(telegram_id: str):
 @app.post("/update-plan")
 def update_plan(data: dict):
     db = SessionLocal()
-    user = db.query(User).filter(User.telegram_id == data["telegram_id"]).first()
+    telegram_id = data.get("telegram_id") or data.get("user_id")
+    plan = data.get("plan")
+
+    if not telegram_id or not plan:
+        return {"status": "error", "message": "telegram_id/user_id and plan are required"}
+
+    user = db.query(User).filter(User.telegram_id == telegram_id).first()
 
     if user:
-        user.plan = data["plan"]
+        user.plan = plan
         db.commit()
 
     return {"status": "updated"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
 
 # ==============================
 # 🤖 Main AI Endpoint
