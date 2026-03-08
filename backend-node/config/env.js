@@ -36,6 +36,7 @@ export const env = {
   AI_SERVER_URL:
     process.env.AI_SERVER_URL ||
     (process.env.NODE_ENV === "development" ? "http://localhost:8000" : ""),
+  AI_PROVIDER: process.env.AI_PROVIDER || "auto",
   OPENAI_API_KEY: process.env.OPENAI_API_KEY,
   GROQ_API_KEY: process.env.GROQ_API_KEY,
   CLAUDE_API_KEY: process.env.CLAUDE_API_KEY,

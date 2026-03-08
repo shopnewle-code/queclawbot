@@ -12,10 +12,34 @@ export class AIService {
     this.hfApiKey = env.HUGGINGFACE_API_KEY;
     this.openaiBaseUrl = env.OPENAI_BASE_URL || "https://api.openai.com/v1";
     this.openaiModel = env.OPENAI_MODEL || "gpt-4o-mini";
+    this.defaultProvider = (env.AI_PROVIDER || "auto").toLowerCase();
     this.timeout = 30000;
   }
 
-  async askAI(prompt, userId, plan = "free") {
+  normalizeProvider(provider) {
+    const value = `${provider || "auto"}`.trim().toLowerCase();
+    if (value === "grok") return "groq";
+    return value;
+  }
+
+  async askWithOpenAIThenGroq(text) {
+    if (!this.openaiApiKey && !this.groqApiKey) {
+      throw new Error("No OpenAI/Groq provider configured");
+    }
+
+    if (this.openaiApiKey) {
+      try {
+        return await this.askOpenAI(text);
+      } catch (error) {
+        logger.warn(`OpenAI failed. ${this.groqApiKey ? "Trying Groq." : "No Groq fallback."}`);
+        if (!this.groqApiKey) throw error;
+      }
+    }
+
+    return await this.askGroq(text);
+  }
+
+  async askAI(prompt, userId, plan = "free", preferredProvider = "auto") {
     const text = `${prompt || ""}`.trim();
     if (!text) throw new Error("Prompt cannot be empty");
 
@@ -33,6 +57,21 @@ export class AIService {
         }
       }
 
+      const selectedProvider = this.normalizeProvider(
+        preferredProvider === "auto" ? this.defaultProvider : preferredProvider
+      );
+
+      if (selectedProvider === "openai") {
+        return await this.askWithOpenAIThenGroq(text);
+      }
+
+      if (selectedProvider === "groq") {
+        if (!this.groqApiKey) {
+          throw new Error("Groq provider is not configured");
+        }
+        return await this.askGroq(text);
+      }
+
       const normalizedPlan = `${plan || "free"}`.toLowerCase();
       const isPremiumTier =
         normalizedPlan === "premium" || normalizedPlan === "enterprise";
@@ -41,8 +80,8 @@ export class AIService {
         return await this.askClaude(text);
       }
 
-      if ((normalizedPlan === "pro" || isPremiumTier) && this.openaiApiKey) {
-        return await this.askOpenAI(text);
+      if (normalizedPlan === "pro" || isPremiumTier) {
+        return await this.askWithOpenAIThenGroq(text);
       }
 
       if (this.groqApiKey) {
@@ -50,7 +89,7 @@ export class AIService {
       }
 
       if (this.openaiApiKey) {
-        return await this.askOpenAI(text);
+        return await this.askWithOpenAIThenGroq(text);
       }
 
       if (this.geminiApiKey) {
