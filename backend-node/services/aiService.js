@@ -2,274 +2,428 @@ import axios from "axios";
 import { env } from "../config/env.js";
 import { logger } from "../utils/logger.js";
 
-/**
- * AI Engine Service
- * Communicates with the Python FastAPI AI engine
- */
-
 export class AIService {
-  constructor() {
-    this.aiServerUrl = env.AI_SERVER_URL;
-    this.openaiApiKey = env.OPENAI_API_KEY;
-    this.openaiBaseUrl = env.OPENAI_BASE_URL;
-    this.openaiModel = env.OPENAI_MODEL;
-    this.timeout = 30000; // 30 seconds
-  }
 
-  /**
-   * Send prompt to AI engine and get response
-   */
-  async askAI(prompt, userId) {
-    const trimmedPrompt = `${prompt || ""}`.trim();
-    if (!trimmedPrompt) {
-      throw new Error("Prompt cannot be empty");
-    }
+constructor() {
 
-    if (this.aiServerUrl) {
-      try {
-        const response = await axios.post(
-          `${this.aiServerUrl}/ask`,
-          {
-            text: trimmedPrompt,
-            user_id: userId,
-          },
-          {
-            timeout: this.timeout,
-            headers: {
-              "Content-Type": "application/json",
-            },
-          }
-        );
+this.aiServerUrl = env.AI_SERVER_URL;
 
-        logger.debug(`AI response for user ${userId}`);
-        return response.data;
-      } catch (error) {
-        logger.error(`AI request failed for user ${userId}`, error.message);
+this.openaiApiKey = env.OPENAI_API_KEY;
 
-        if (error.response?.status === 429) {
-          throw new Error("AI server rate limit exceeded");
-        }
+this.groqApiKey = env.GROQ_API_KEY;
 
-        if (this.shouldFallbackToOpenAI(error) && this.openaiApiKey) {
-          logger.warn(
-            "AI server unavailable. Falling back to direct OpenAI API."
-          );
-          return this.askOpenAIDirect(trimmedPrompt, userId);
-        }
+this.claudeApiKey = env.CLAUDE_API_KEY;
 
-        if (error.code === "ECONNREFUSED") {
-          throw new Error("AI server is not running");
-        }
+this.geminiApiKey = env.GEMINI_API_KEY;
 
-        throw error;
-      }
-    }
+this.hfApiKey = env.HUGGINGFACE_API_KEY;
 
-    if (this.openaiApiKey) {
-      return this.askOpenAIDirect(trimmedPrompt, userId);
-    }
+this.openaiBaseUrl = env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 
-    throw new Error(
-      "AI is not configured. Set AI_SERVER_URL or OPENAI_API_KEY."
-    );
-  }
+this.openaiModel = env.OPENAI_MODEL || "gpt-4o-mini";
 
-  shouldFallbackToOpenAI(error) {
-    if (!error) return true;
+this.timeout = 30000;
 
-    const networkErrors = new Set([
-      "ECONNREFUSED",
-      "ENOTFOUND",
-      "ETIMEDOUT",
-      "ECONNRESET",
-      "EAI_AGAIN",
-    ]);
-
-    if (networkErrors.has(error.code)) {
-      return true;
-    }
-
-    const status = error.response?.status;
-    return status >= 500;
-  }
-
-  async askOpenAIDirect(prompt, userId) {
-    if (!this.openaiApiKey) {
-      throw new Error("OPENAI_API_KEY is not configured");
-    }
-
-    try {
-      const response = await axios.post(
-        `${this.openaiBaseUrl}/chat/completions`,
-        {
-          model: this.openaiModel,
-          messages: [{ role: "user", content: prompt }],
-        },
-        {
-          timeout: this.timeout,
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${this.openaiApiKey}`,
-          },
-        }
-      );
-
-      const reply = response.data?.choices?.[0]?.message?.content?.trim();
-      if (!reply) {
-        throw new Error("Empty response from OpenAI");
-      }
-
-      logger.debug(`OpenAI response for user ${userId}`);
-      return {
-        reply,
-        provider: "openai",
-        model: this.openaiModel,
-      };
-    } catch (error) {
-      logger.error(`OpenAI request failed for user ${userId}`, error.message);
-
-      if (error.response?.status === 401) {
-        throw new Error("Invalid OPENAI_API_KEY");
-      }
-
-      if (error.response?.status === 429) {
-        throw new Error("OpenAI rate limit exceeded");
-      }
-
-      throw new Error(error.response?.data?.error?.message || error.message);
-    }
-  }
-
-  /**
-   * Get user information from AI engine
-   */
-  async getUserInfo(userId) {
-    try {
-      const response = await axios.get(
-        `${this.aiServerUrl}/get_user/${userId}`,
-        {
-          timeout: this.timeout,
-        }
-      );
-
-      return response.data;
-    } catch (error) {
-      logger.error(`Failed to get user info from AI engine`, error.message);
-      throw error;
-    }
-  }
-
-  /**
-   * Update user plan in AI engine
-   */
-  async updateUserPlan(userId, plan) {
-    try {
-      const response = await axios.post(
-        `${this.aiServerUrl}/update-plan`,
-        {
-          user_id: userId,
-          plan: plan,
-        },
-        {
-          timeout: this.timeout,
-        }
-      );
-
-      logger.success(`Updated plan for user ${userId}: ${plan}`);
-      return response.data;
-    } catch (error) {
-      logger.error(`Failed to update user plan in AI engine`, error.message);
-      // Don't throw, log and continue
-      return null;
-    }
-  }
-
-  /**
-   * Health check for AI server
-   */
-  async healthCheck() {
-    if (!this.aiServerUrl) {
-      return Boolean(this.openaiApiKey);
-    }
-
-    try {
-      const response = await axios.get(`${this.aiServerUrl}/health`, {
-        timeout: 5000,
-      });
-
-      return response.status === 200;
-    } catch (error) {
-      logger.warn("AI server health check failed");
-      return false;
-    }
-  }
-
-  /**
-   * Generate image from text prompt
-   */
-  async generateImage(prompt) {
-    try {
-      const response = await axios.post(
-        `${this.aiServerUrl}/generate-image`,
-        {
-          prompt: prompt,
-        },
-        {
-          timeout: 60000, // 60 seconds for image generation
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      logger.debug("Image generated successfully");
-      return response.data.image_url || response.data.url;
-    } catch (error) {
-      logger.error("Image generation failed", error.message);
-
-      if (error.response?.status === 402) {
-        throw new Error("Insufficient credits for image generation");
-      }
-
-      if (error.code === "ECONNREFUSED") {
-        throw new Error("AI server is offline");
-      }
-
-      throw new Error(error.response?.data?.message || "Image generation failed");
-    }
-  }
-
-  /**
-   * Search the web for information
-   */
-  async searchWeb(query) {
-    try {
-      const response = await axios.post(
-        `${this.aiServerUrl}/search`,
-        {
-          q: query,
-        },
-        {
-          timeout: this.timeout,
-          headers: {
-            "Content-Type": "application/json",
-          },
-        }
-      );
-
-      logger.debug(`Web search for "${query}" completed`);
-      return response.data.results || response.data;
-    } catch (error) {
-      logger.error("Web search failed", error.message);
-
-      if (error.response?.status === 429) {
-        throw new Error("Search rate limit exceeded");
-      }
-
-      throw new Error(error.response?.data?.message || "Web search failed");
-    }
-  }
 }
 
+
+
+async askAI(prompt, userId, plan = "free") {
+
+const text = `${prompt || ""}`.trim();
+
+if (!text) throw new Error("Prompt cannot be empty");
+
+
+
+try {
+
+
+
+/* ---------- 1️⃣ Try Python AI Server ---------- */
+
+if (this.aiServerUrl) {
+
+try {
+
+const response = await axios.post(
+
+`${this.aiServerUrl}/ask`,
+
+{ text, user_id: userId },
+
+{ timeout: this.timeout }
+
+);
+
+return response.data;
+
+} catch (err) {
+
+logger.warn("AI server unavailable. Switching to cloud AI.");
+
+}
+
+}
+
+
+
+/* ---------- 2️⃣ Plan Based Routing ---------- */
+
+if (plan === "enterprise" && this.claudeApiKey) {
+
+return await this.askClaude(text);
+
+}
+
+
+
+if (plan === "pro" && this.openaiApiKey) {
+
+return await this.askOpenAI(text);
+
+}
+
+
+
+/* ---------- 3️⃣ Free Tier ---------- */
+
+if (this.groqApiKey) {
+
+return await this.askGroq(text);
+
+}
+
+
+
+/* ---------- 4️⃣ Fallback Chain ---------- */
+
+if (this.openaiApiKey) {
+
+return await this.askOpenAI(text);
+
+}
+
+
+
+if (this.geminiApiKey) {
+
+return await this.askGemini(text);
+
+}
+
+
+
+if (this.hfApiKey) {
+
+return await this.askHuggingFace(text);
+
+}
+
+
+
+throw new Error("No AI provider configured");
+
+
+
+} catch (error) {
+
+logger.error("AI request failed", error.message);
+
+throw error;
+
+}
+
+}
+
+
+
+/* ==============================
+
+OPENAI
+
+============================== */
+
+async askOpenAI(prompt) {
+
+const response = await axios.post(
+
+`${this.openaiBaseUrl}/chat/completions`,
+
+{
+
+model: this.openaiModel,
+
+messages: [{ role: "user", content: prompt }]
+
+},
+
+{
+
+headers: {
+
+Authorization: `Bearer ${this.openaiApiKey}`,
+
+"Content-Type": "application/json"
+
+}
+
+}
+
+);
+
+
+
+return {
+
+reply: response.data.choices[0].message.content.trim(),
+
+provider: "openai",
+
+model: this.openaiModel
+
+};
+
+}
+
+
+
+/* ==============================
+
+GROQ (FAST FREE MODEL)
+
+============================== */
+
+async askGroq(prompt) {
+
+const response = await axios.post(
+
+"https://api.groq.com/openai/v1/chat/completions",
+
+{
+
+model: "llama3-70b-8192",
+
+messages: [{ role: "user", content: prompt }]
+
+},
+
+{
+
+headers: {
+
+Authorization: `Bearer ${this.groqApiKey}`,
+
+"Content-Type": "application/json"
+
+}
+
+}
+
+);
+
+
+
+return {
+
+reply: response.data.choices[0].message.content,
+
+provider: "groq",
+
+model: "llama3-70b"
+
+};
+
+}
+
+
+
+/* ==============================
+
+CLAUDE (ENTERPRISE)
+
+============================== */
+
+async askClaude(prompt) {
+
+const response = await axios.post(
+
+"https://api.anthropic.com/v1/messages",
+
+{
+
+model: "claude-3-haiku-20240307",
+
+max_tokens: 1024,
+
+messages: [{ role: "user", content: prompt }]
+
+},
+
+{
+
+headers: {
+
+"x-api-key": this.claudeApiKey,
+
+"anthropic-version": "2023-06-01",
+
+"Content-Type": "application/json"
+
+}
+
+}
+
+);
+
+
+
+return {
+
+reply: response.data.content[0].text,
+
+provider: "claude",
+
+model: "claude-3-haiku"
+
+};
+
+}
+
+
+
+/* ==============================
+
+GEMINI
+
+============================== */
+
+async askGemini(prompt) {
+
+const response = await axios.post(
+
+`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${this.geminiApiKey}`,
+
+{
+
+contents: [
+
+{
+
+parts: [{ text: prompt }]
+
+}
+
+]
+
+}
+
+);
+
+
+
+return {
+
+reply: response.data.candidates[0].content.parts[0].text,
+
+provider: "gemini",
+
+model: "gemini-pro"
+
+};
+
+}
+
+
+
+/* ==============================
+
+HUGGINGFACE
+
+============================== */
+
+async askHuggingFace(prompt) {
+
+const response = await axios.post(
+
+"https://api-inference.huggingface.co/models/mistralai/Mistral-7B-Instruct-v0.2",
+
+{ inputs: prompt },
+
+{
+
+headers: {
+
+Authorization: `Bearer ${this.hfApiKey}`
+
+}
+
+}
+
+);
+
+
+
+return {
+
+reply: response.data[0].generated_text,
+
+provider: "huggingface",
+
+model: "mistral-7b"
+
+};
+
+}
+
+
+
+/* ==============================
+
+HEALTH CHECK
+
+============================== */
+
+async healthCheck() {
+
+try {
+
+if (this.aiServerUrl) {
+
+const res = await axios.get(`${this.aiServerUrl}/health`);
+
+if (res.status === 200) return true;
+
+}
+
+
+
+return Boolean(
+
+this.openaiApiKey ||
+
+this.groqApiKey ||
+
+this.claudeApiKey ||
+
+this.geminiApiKey ||
+
+this.hfApiKey
+
+);
+
+} catch {
+
+return false;
+
+}
+
+}
+
+}
+
+
+
 export const aiService = new AIService();
+
 export default aiService;
