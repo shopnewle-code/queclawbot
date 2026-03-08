@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from groq import Groq
 import anthropic
 from openai import OpenAI
+from huggingface_hub import InferenceClient
 
 from database import SessionLocal, User
 
@@ -27,6 +28,7 @@ class Query(BaseModel):
 groq_client = Groq(api_key=os.getenv("GROQ_API_KEY"))
 claude_client = anthropic.Anthropic(api_key=os.getenv("CLAUDE_API_KEY"))
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+huggingface_client = InferenceClient(api_key=os.getenv("HUGGINGFACE_API_KEY"))
 
 # ==============================
 # 📊 Plan Configuration
@@ -37,7 +39,7 @@ PLAN_LIMITS = {
 }
 
 PLAN_PROVIDERS = {
-    "free": ["groq"],
+    "free": ["groq"],, "huggingface"
     "pro": ["groq", "openai", "claude"]
 }
 
@@ -142,6 +144,15 @@ def ask_ai(query: Query):
                     messages=[{"role": "user", "content": query.text}]
                 )
                 return {"reply": response.content[0].text}
+
+            if provider == "huggingface":
+                response = huggingface_client.text_generation(
+                    query.text,
+                    model="meta-llama/Llama-2-7b-chat-hf",
+                    max_new_tokens=500,
+                    temperature=0.7
+                )
+                return {"reply": response}
 
         except Exception:
             continue

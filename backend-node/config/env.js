@@ -34,6 +34,7 @@ export const env = {
 
   // AI Engine
   AI_SERVER_URL: process.env.AI_SERVER_URL || "http://localhost:8000",
+  HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
 
   // Settings
   AI_USAGE_FREE_LIMIT: 5,
